@@ -1,3 +1,3 @@
 [submodule "laks"]
 	path = laks
-	url = ../laks-git
+	url = git@github.com:karlp/laks.git
