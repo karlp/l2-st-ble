@@ -1,13 +1,12 @@
 #include <adc/adc_f3.h>
 #include <cortex_m/debug.h>
 #include <dma/dma.h>
-#include <dma/dmamux.h>
 #include <gpio/gpio.h>
 #include <interrupt/interrupt.h>
 #include <rcc/flash.h>
 #include <rcc/rcc.h>
 #include <timer/timer.h>
-#include <usart/usart.h>
+#include <uart/uart.h>
 #include <usb/usb.h>
 #include <usb/descriptor.h>
 
@@ -61,18 +60,47 @@ void adc_set_sampling_all(int sampling) {
 	ADC1.SMPR2 = reg;  // extra bits? yolo!
 }
 
-void setup_timer_adc_dma(void)
+auto led_r = GPIOB[1];
+static void prvTask_ktimer_simple(void *pvParameters)
 {
+	(void)pvParameters;
+
+	led_r.set_mode(Pin::Output);
 
 	RCC.enable(rcc::TIM2);
 	const auto freq = 5;
 
-	TIM2.ARR = (32000000 / freq) - 1;
-	TIM2.CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
-	TIM2.CCER = 1 << 0;
-	// TIM2.DIER = 1 << 0; // Update interrupt plz
+	TIM2->ARR = (32000000 / freq) - 1;
+	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
+	TIM2->CCER = 1 << 0;
+	TIM2->DIER = 1 << 0; // Update interrupt plz
 
 	interrupt_ctl.enable(interrupt::irq::TIM2);
+
+	// Finally, start the timer that is going to do the counting....
+	TIM2->CR1 = 1 << 0; // Enable;
+
+	while (1) {
+		vTaskDelay(pdMS_TO_TICKS(2000));
+	}
+}
+
+static void prvTask_kadc(void *pvParameters)
+{
+	(void)pvParameters;
+
+	auto led_r = GPIOB[1];
+	led_r.set_mode(Pin::Output);
+
+
+	RCC.enable(rcc::TIM2);
+	const auto freq = 5;
+
+	TIM2->ARR = (32000000 / freq) - 1;
+	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
+	TIM2->CCER = 1 << 0;
+//	TIM2->DIER = 1 << 0; // Update interrupt plz
+//	interrupt_ctl.enable(interrupt::irq::TIM2);
 
 
 	// setup DMA first...
@@ -80,23 +108,28 @@ void setup_timer_adc_dma(void)
 	RCC.enable(rcc::DMA1);
 
 	// Use DMA mux channel 0 / DMA Channel 1for ADC
-	DMAMUX1.CCR[0] = 5;
-	DMA1.reg.C[0].CR = 0
+	DMAMUX1->CCR[0] = 5;
+	DMA1->C[0].CR = 0
 		| (2<<10) // msize 16bit
 		| (2<<8) // psize 16bit
 		| (1<<7) // minc plz
 		| (1<<5) // circ plz
 		| (1<<1) // TC irq plz
 		;
-	DMA1.reg.C[0].NDTR = 5;
-	DMA1.reg.C[0].MAR = (uint32_t)&adc_buf;
-	DMA1.reg.C[0].PAR = (uint32_t)&(ADC1.DR);
-	DMA1.reg.C[0].CR |= 1; // enable DMA  // I _believe_ this won't do anythign yet, but might need to move timer enable to the end? that's the driver of it all...
+	DMA1->C[0].NDTR = 5;
+	DMA1->C[0].MAR = (uint32_t)&adc_buf;
+	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
+	DMA1->C[0].CR |= 1; // enable DMA  // I _believe_ this won't do anythign yet, but might need to move timer enable to the end? that's the driver of it all...
 
 
-	// Setup ADC as well
+	// Turn on the ADC then we'll do other things while it's waking up.
 	RCC.enable(rcc::ADC1);
+	// Make sure we give it a clock!
+	RCC->CCIPR |= (3<<28); // Use sysclk for now. We may want to run it slower later.
 	ADC1.CR = (1<<28);  // turn off deep power down (bit 29) and enables vreg
+	// waiting for adc vreg is max 20 usecs, FIXME: get a shorter loop for usecs..
+	// (20usecs is 640 cycles at 32MHz, fyi... so we're always going to be waiting...)
+	vTaskDelay(pdMS_TO_TICKS(1));
 
 	// If you have calibration from "earlier" apply it, otherwise...
 	uint32_t calfact = 0;
@@ -104,6 +137,8 @@ void setup_timer_adc_dma(void)
 		// TODO - I think ADEN must be turned on here first.
 		ADC1.CALFACT = calfact;
 	} else {
+		// This is meant to take about 116 adc fclock cycles, ish.
+		// That's still only <4usecs at 32MHz
 		ADC1.CR |= (1<<31);
 		while (ADC1.CR & (1<<31))
 			;
@@ -139,7 +174,15 @@ void setup_timer_adc_dma(void)
 	ADC1.SQR2 = (18 << (6*0)); // vrefint
 
 	// Finally, start the timer that is going to do the counting....
-	TIM2.CR1 = 1 << 0; // Enable;
+	TIM2->CR1 = 1 << 0; // Enable;
+
+	int i = 0;
+	while (1) {
+		i++;
+	        ITM->STIM[0] = 'A' + (i%26);
+		led_r.toggle();
+		vTaskDelay(pdMS_TO_TICKS(1000));
+	}
 
 
 }
@@ -147,22 +190,22 @@ void setup_timer_adc_dma(void)
 
 template <>
 void interrupt::handler<interrupt::irq::TIM2>() {
-	TIM2.SR = ~(1<<0); // Clear UIF 
+	TIM2->SR = ~(1<<0); // Clear UIF
 //	led_r.toggle();
 }
 
 template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
-	if (DMA1.reg.ISR & (1<<1)) { // CH1 TCIF
-		DMA1.reg.IFCR = (1<<1);
+	if (DMA1->ISR & (1<<1)) { // CH1 TCIF
+		DMA1->IFCR = (1<<1);
 		kdata[kindex++] = adc_buf[kinteresting];
 		if (kindex > 1024) {
 			kindex = 0;
 		}
 	}
-	if (DMA1.reg.ISR & (1<<3)) {
+	if (DMA1->ISR & (1<<3)) {
 		// Errors...
-		DMA1.reg.IFCR = (1<<3); // clear it at least.
+		DMA1->IFCR = (1<<3); // clear it at least.
 		ITM->STIM[0] = '!';
 	}
 }
@@ -187,24 +230,9 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-		vTaskDelay(100 * portTICK_PERIOD_MS);
+		vTaskDelay(pdMS_TO_TICKS(100));
 	        ITM->STIM[0] = 'a' + (i%26);
 		led_g.toggle();
-	}
-}
-
-static void prvTaskBlinkRed(void *pvParameters)
-{
-	(void)pvParameters;
-	auto led_r = GPIOB[1];
-	led_r.set_mode(Pin::Output);
-
-	int i = 0;
-	while (1) {
-		i++;
-		vTaskDelay(350 * portTICK_PERIOD_MS);
-	        ITM->STIM[0] = 'A' + (i%26);
-		led_r.toggle();
 	}
 }
 
@@ -215,7 +243,6 @@ int main() {
 	RCC.enable(rcc::GPIOB);
 
 	xTaskCreate(prvTaskBlinkGreen, "green.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
-	xTaskCreate(prvTaskBlinkRed, "red.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	led_b.set_mode(Pin::Output);
 	xBlueTimer = xTimerCreate("blue.blink", 200 * portTICK_PERIOD_MS, true, 0, prvTimerBlue);
@@ -229,14 +256,13 @@ int main() {
 		// boooo!!!!! fixme trace?
 	}
 
-//	xTaskCreate(task_kadc, "kadc")
-//	setup_timer_adc_dma();
+	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
+//	xTaskCreate(prvTask_ktimer_simple, "ktimer", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	vTaskStartScheduler();
 
 	return 0;
 }
-
 
 // TODO -figure out how to give this to freertosconfig?
 //#define vPortSVCHandler SVC_Handler
