@@ -1,4 +1,11 @@
+#!python
+import os.path
+
 env = SConscript('laks/build/env.py')
+env.SetDefault(
+        FREERTOS = "#freertos",
+        FREERTOS_PORT = "#freertos/portable/GCC/ARM_CM4F",  # TODO - pull it out of selectmcu's result? hahaha
+        )
 
 #env.SelectMCU('stm32f746ng')
 #env.SelectMCU('stm32f407vg')
@@ -12,19 +19,15 @@ env.Append(
 )
 
 env.Append(
-	#CCFLAGS = Split('-fno-inline'),
-	CPPPATH = Dir('fmt/include'),
-	#LIB_SOURCES = Glob('fmt/src/format.cc'),
-	#CPPDEFINES = ['FMT_STATIC_THOUSANDS_SEPARATOR', 'FMT_EXCEPTIONS=0'],
+	CPPPATH = [
+            "${FREERTOS}/include",
+            "${FREERTOS_PORT}",
+            "#.",
+            ],
 )
 
-env.Firmware('main.elf', ['main.cpp'])
-#env.Firmware('main.elf', ['main.cpp', 'start.cpp'])
+sources_freertos = [os.path.join("${FREERTOS}/", x) for x in Split("list.c queue.c tasks.c timers.c")]
+sources_freertos += ["${FREERTOS_PORT}/port.c"]
+sources_freertos += ["${FREERTOS}/portable/MemMang/heap_1.c"]
 
-#env.Firmware('exc_test.elf', ['exc_test.cpp'])
-
-#env.Command('main.S', 'main.o', '${TOOLCHAIN}objdump -d $SOURCE -l -C > $TARGET')
-
-#env.Firmware('hello.elf', ['hello.cpp', 'start.cpp'])
-#env.Firmware('main.elf', ['hello_f7.cpp'])
-
+env.Firmware('main.elf', ['main.cpp'] + sources_freertos)

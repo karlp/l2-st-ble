@@ -11,6 +11,10 @@
 #include <usb/usb.h>
 #include <usb/descriptor.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+#include "timers.h"
+
 /**
  * We just want to run at 32Mhz, so skip the "normal" rcc_init() full speed option
  */
@@ -140,14 +144,11 @@ void setup_timer_adc_dma(void)
 
 }
 
-auto led_r = GPIOB[1];
-auto led_g = GPIOB[0];
-auto led_b = GPIOB[5];
 
 template <>
 void interrupt::handler<interrupt::irq::TIM2>() {
 	TIM2.SR = ~(1<<0); // Clear UIF 
-	led_r.toggle();
+//	led_r.toggle();
 }
 
 template <>
@@ -166,30 +167,96 @@ void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	}
 }
 
+static TimerHandle_t xBlueTimer;
+auto led_b = GPIOB[5];
+static void prvTimerBlue(TimerHandle_t xTimer)
+{
+	/* Timers can only work on globals, boo,
+	 * no, (ab)using pvTimerGetTimerID doesn't sound worthwhile */
+        (void) xTimer;
+        led_b.toggle();
+}
+
+
+static void prvTaskBlinkGreen(void *pvParameters)
+{
+	(void)pvParameters;
+	auto led_g = GPIOB[0];
+	led_g.set_mode(Pin::Output);
+
+	int i = 0;
+	while (1) {
+		i++;
+		vTaskDelay(100 * portTICK_PERIOD_MS);
+	        ITM->STIM[0] = 'a' + (i%26);
+		led_g.toggle();
+	}
+}
+
+static void prvTaskBlinkRed(void *pvParameters)
+{
+	(void)pvParameters;
+	auto led_r = GPIOB[1];
+	led_r.set_mode(Pin::Output);
+
+	int i = 0;
+	while (1) {
+		i++;
+		vTaskDelay(350 * portTICK_PERIOD_MS);
+	        ITM->STIM[0] = 'A' + (i%26);
+		led_r.toggle();
+	}
+}
+
 
 int main() {
 	krcc_init32();
 
 	RCC.enable(rcc::GPIOB);
 
+	xTaskCreate(prvTaskBlinkGreen, "green.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
+	xTaskCreate(prvTaskBlinkRed, "red.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 
-	led_r.set_mode(Pin::Output);
-	led_g.set_mode(Pin::Output);
 	led_b.set_mode(Pin::Output);
-	
-	setup_timer_adc_dma();
-
-	int i = 0;
-	while (1) {
-		for (unsigned int k = 0; k < 0x70000; k++) {
-			asm volatile ("nop");
+	xBlueTimer = xTimerCreate("blue.blink", 200 * portTICK_PERIOD_MS, true, 0, prvTimerBlue);
+	if (xBlueTimer) {
+		if (xTimerStart(xBlueTimer, 0) != pdTRUE) {
+			/* whee */
+		} else {
+			// boooo
 		}
-		i++;
-	        ITM->STIM[0] = 'a' + (i%26);
-//		led_r.set(i & (1<<0));
-		led_g.set(i & (1<<1));
-		led_b.set(i & (1<<2));
-
+	} else {
+		// boooo!!!!! fixme trace?
 	}
+
+//	xTaskCreate(task_kadc, "kadc")
+//	setup_timer_adc_dma();
+
+	vTaskStartScheduler();
+
 	return 0;
 }
+
+
+// TODO -figure out how to give this to freertosconfig?
+//#define vPortSVCHandler SVC_Handler
+//#define xPortPendSVHandler PendSV_Handler
+//#define xPortSysTickHandler SysTick_Handler
+extern "C" {
+	void vPortSVCHandler(void);
+	void xPortPendSVHandler(void);
+	void xPortSysTickHandler(void);
+}
+template <>
+void interrupt::handler<interrupt::exception::SVCall>() {
+	vPortSVCHandler();
+}
+template <>
+void interrupt::handler<interrupt::exception::PendSV>() {
+	xPortPendSVHandler();
+}
+template <>
+void interrupt::handler<interrupt::exception::SysTick>() {
+	xPortSysTickHandler();
+}
+
