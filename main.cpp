@@ -94,7 +94,7 @@ static void prvTask_kadc(void *pvParameters)
 
 
 	RCC.enable(rcc::TIM2);
-	const auto freq = 5;
+	const auto freq = 5000;
 
 	TIM2->ARR = (32000000 / freq) - 1;
 	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
@@ -110,11 +110,11 @@ static void prvTask_kadc(void *pvParameters)
 	// Use DMA mux channel 0 / DMA Channel 1for ADC
 	DMAMUX1->CCR[0] = 5;
 	DMA1->C[0].CR = 0
-		| (2<<10) // msize 16bit
-		| (2<<8) // psize 16bit
+		| (1<<10) // msize 16bit
+		| (1<<8) // psize 16bit
 		| (1<<7) // minc plz
 		| (1<<5) // circ plz
-		| (1<<1) // TC irq plz
+		| (5<<1) // TE+TC irqs plz
 		;
 	DMA1->C[0].NDTR = 5;
 	DMA1->C[0].MAR = (uint32_t)&adc_buf;
@@ -152,6 +152,8 @@ static void prvTask_kadc(void *pvParameters)
 	while (!(ADC1.ISR & (1<<0)))
 		;
 
+	// TODO: cube sets up OVERRUN interrupt?  is it worth handling that? Even just rebooting? flagging that we've got bad data?
+
 	// turn on temp sensor and vrefint
 	ADC_COMMON.CCR |= (1<<23) | (1<<22);
 
@@ -163,6 +165,8 @@ static void prvTask_kadc(void *pvParameters)
 		| (11<<6) // EXTI11 for tim2 trgo
 		| (3) // DMA circular + DMA enable
 		;
+	// Set ADC to start when it starts getting triggers
+	ADC1.CR |= (1<<2);
 
 	// Sequences are silly, but so be it...
 	ADC1.SQR1 = 5-1;  // 5 conversions first.
