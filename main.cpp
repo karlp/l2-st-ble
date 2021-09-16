@@ -46,12 +46,23 @@ void krcc_init32(void) {
 
 }
 
-static uint16_t adc_buf[5];
+static volatile uint16_t adc_buf[5];
 static volatile uint16_t kdata[1024];
 static volatile int kindex = 0;
-static volatile int kinteresting = 0;
+static volatile int kinteresting = 4;
 
-void adc_set_sampling_all(int sampling) {
+void adc_set_sampling(unsigned channel, int sampling) {
+	if (channel < 10) {
+		ADC1.SMPR1 &= ~(0x7<<(3*channel));
+		ADC1.SMPR1 |= (sampling<<(3*channel));
+	} else {
+		channel -= 10;
+		ADC1.SMPR1 &= ~(0x7<<(3*channel));
+		ADC1.SMPR1 |= (sampling<<(3*channel));
+	}
+}
+
+void adc_set_sampling(int sampling) {
 	uint32_t reg = 0;
 	for (int i = 0; i < 10; i++) {
 		reg |= (sampling << (3*i));
@@ -91,6 +102,7 @@ static void prvTask_kadc(void *pvParameters)
 
 	auto led_r = GPIOB[1];
 	led_r.set_mode(Pin::Output);
+	uint32_t before = DWT->CYCCNT;
 
 
 	RCC.enable(rcc::TIM2);
@@ -99,9 +111,6 @@ static void prvTask_kadc(void *pvParameters)
 	TIM2->ARR = (32000000 / freq) - 1;
 	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
 	TIM2->CCER = 1 << 0;
-//	TIM2->DIER = 1 << 0; // Update interrupt plz
-//	interrupt_ctl.enable(interrupt::irq::TIM2);
-
 
 	// setup DMA first...
 	RCC.enable(rcc::DMAMUX1);
@@ -109,17 +118,17 @@ static void prvTask_kadc(void *pvParameters)
 
 	// Use DMA mux channel 0 / DMA Channel 1for ADC
 	DMAMUX1->CCR[0] = 5;
+	DMA1->C[0].NDTR = 5;
+	DMA1->C[0].MAR = (uint32_t)&adc_buf;
+	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
 	DMA1->C[0].CR = 0
 		| (1<<10) // msize 16bit
 		| (1<<8) // psize 16bit
 		| (1<<7) // minc plz
 		| (1<<5) // circ plz
 		| (5<<1) // TE+TC irqs plz
+		| 1 // enable, will do nothing without requests
 		;
-	DMA1->C[0].NDTR = 5;
-	DMA1->C[0].MAR = (uint32_t)&adc_buf;
-	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
-	DMA1->C[0].CR |= 1; // enable DMA  // I _believe_ this won't do anythign yet, but might need to move timer enable to the end? that's the driver of it all...
 	interrupt_ctl.enable(interrupt::irq::DMA1_CH1);
 
 	// Turn on the ADC then we'll do other things while it's waking up.
@@ -129,9 +138,11 @@ static void prvTask_kadc(void *pvParameters)
 	ADC1.CR = (1<<28);  // turn off deep power down (bit 29) and enables vreg
 	// waiting for adc vreg is max 20 usecs, FIXME: get a shorter loop for usecs..
 	// (20usecs is 640 cycles at 32MHz, fyi... so we're always going to be waiting...)
+	ITM->STIM[2].h = DWT->CYCCNT - before;
 	vTaskDelay(pdMS_TO_TICKS(1));
 
 	// If you have calibration from "earlier" apply it, otherwise...
+	before = DWT->CYCCNT;
 	uint32_t calfact = 0;
 	if (calfact) {
 		// TODO - I think ADEN must be turned on here first.
@@ -144,6 +155,7 @@ static void prvTask_kadc(void *pvParameters)
 			;
 		calfact = ADC1.CALFACT; // nominally, save them
 	}
+	ITM->STIM[2].h = DWT->CYCCNT - before;
 	// nominally, 4 clock cycles required between CAL finishing and before we can turn on CR, should be ok....
 
 	// clear adcrdy flag, aden=1, wait til adcrdy flag...
@@ -157,7 +169,11 @@ static void prvTask_kadc(void *pvParameters)
 	// turn on temp sensor and vrefint
 	ADC_COMMON.CCR |= (1<<23) | (1<<22);
 
-	adc_set_sampling_all(4); // 47.5 clocks on all for starters.
+	// FIXME - recalculate based on final ADC clocks:
+	// at 32Mhz, 4us = 128, 5us = 160, and 12 = 384
+	adc_set_sampling(4); //4 == 47.5 clocks on all for starters.
+	adc_set_sampling(0, 0b110); // that's 247, but 92 is too low
+	adc_set_sampling(17, 0b110); // that's 247, but 92 is too low
 
 	// I want ext11, which is tim2 trgo
 	ADC1.CFGR = (1<<31)  // LEave JQDIS
@@ -183,8 +199,8 @@ static void prvTask_kadc(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-	        ITM->STIM[0] = 'A' + (i%26);
-		led_r.toggle();
+	        ITM->STIM[0].b = 'A' + (i%26);
+//		led_r.toggle();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 
@@ -202,15 +218,16 @@ template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	if (DMA1->ISR & (1<<1)) { // CH1 TCIF
 		DMA1->IFCR = (1<<1);
+		ITM->STIM[1].h = adc_buf[kinteresting];
 		kdata[kindex++] = adc_buf[kinteresting];
-		if (kindex > 1024) {
+		if (kindex >= 1024) {
 			kindex = 0;
 		}
 	}
 	if (DMA1->ISR & (1<<3)) {
 		// Errors...
 		DMA1->IFCR = (1<<3); // clear it at least.
-		ITM->STIM[0] = '!';
+		ITM->STIM[0].b = '!';
 	}
 }
 
@@ -221,7 +238,7 @@ static void prvTimerBlue(TimerHandle_t xTimer)
 	/* Timers can only work on globals, boo,
 	 * no, (ab)using pvTimerGetTimerID doesn't sound worthwhile */
         (void) xTimer;
-        led_b.toggle();
+//        led_b.toggle();
 }
 
 
@@ -235,14 +252,16 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	while (1) {
 		i++;
 		vTaskDelay(pdMS_TO_TICKS(100));
-	        ITM->STIM[0] = 'a' + (i%26);
-		led_g.toggle();
+	        ITM->STIM[0].b = 'a' + (i%26);
+//		led_g.toggle();
 	}
 }
 
 
 int main() {
 	krcc_init32();
+	// Turn on DWT_CYCNT.  We'll use it ourselves, and pc sampling needs it too.
+	DWT->CTRL |= 1;
 
 	RCC.enable(rcc::GPIOB);
 
