@@ -120,7 +120,7 @@ static void prvTask_kadc(void *pvParameters)
 	DMA1->C[0].MAR = (uint32_t)&adc_buf;
 	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
 	DMA1->C[0].CR |= 1; // enable DMA  // I _believe_ this won't do anythign yet, but might need to move timer enable to the end? that's the driver of it all...
-
+	interrupt_ctl.enable(interrupt::irq::DMA1_CH1);
 
 	// Turn on the ADC then we'll do other things while it's waking up.
 	RCC.enable(rcc::ADC1);
