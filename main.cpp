@@ -138,7 +138,7 @@ static void prvTask_kadc(void *pvParameters)
 	ADC1.CR = (1<<28);  // turn off deep power down (bit 29) and enables vreg
 	// waiting for adc vreg is max 20 usecs, FIXME: get a shorter loop for usecs..
 	// (20usecs is 640 cycles at 32MHz, fyi... so we're always going to be waiting...)
-	ITM->STIM[2].h = DWT->CYCCNT - before;
+	ITM->STIM[2].u16 = DWT->CYCCNT - before;
 	vTaskDelay(pdMS_TO_TICKS(1));
 
 	// If you have calibration from "earlier" apply it, otherwise...
@@ -155,7 +155,7 @@ static void prvTask_kadc(void *pvParameters)
 			;
 		calfact = ADC1.CALFACT; // nominally, save them
 	}
-	ITM->STIM[2].h = DWT->CYCCNT - before;
+	ITM->STIM[2].u16 = DWT->CYCCNT - before;
 	// nominally, 4 clock cycles required between CAL finishing and before we can turn on CR, should be ok....
 
 	// clear adcrdy flag, aden=1, wait til adcrdy flag...
@@ -199,7 +199,7 @@ static void prvTask_kadc(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-	        ITM->STIM[0].b = 'A' + (i%26);
+	        ITM->STIM[0].u8 = 'A' + (i%26);
 //		led_r.toggle();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
@@ -218,7 +218,7 @@ template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	if (DMA1->ISR & (1<<1)) { // CH1 TCIF
 		DMA1->IFCR = (1<<1);
-		ITM->STIM[1].h = adc_buf[kinteresting];
+		ITM->STIM[1].u16 = adc_buf[kinteresting];
 		kdata[kindex++] = adc_buf[kinteresting];
 		if (kindex >= 1024) {
 			kindex = 0;
@@ -227,7 +227,7 @@ void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	if (DMA1->ISR & (1<<3)) {
 		// Errors...
 		DMA1->IFCR = (1<<3); // clear it at least.
-		ITM->STIM[0].b = '!';
+		ITM->STIM[0].u8 = '!';
 	}
 }
 
@@ -252,7 +252,7 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	while (1) {
 		i++;
 		vTaskDelay(pdMS_TO_TICKS(100));
-	        ITM->STIM[0].b = 'a' + (i%26);
+	        ITM->STIM[0].u8 = 'a' + (i%26);
 //		led_g.toggle();
 	}
 }
