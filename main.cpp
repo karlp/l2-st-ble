@@ -93,31 +93,6 @@ void adc_set_sampling(int sampling) {
 	ADC1.SMPR2 = reg;  // extra bits? yolo!
 }
 
-static void prvTask_ktimer_simple(void *pvParameters)
-{
-	(void)pvParameters;
-
-	led_r.set_mode(Pin::Output);
-
-	RCC.enable(rcc::TIM2);
-	const auto freq = 5;
-
-	TIM2->ARR = (32000000 / freq) - 1;
-	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
-	TIM2->CCER = 1 << 0;
-	TIM2->DIER = 1 << 0; // Update interrupt plz
-
-	interrupt_ctl.enable(interrupt::irq::TIM2);
-
-	// Finally, start the timer that is going to do the counting....
-	TIM2->CR1 = 1 << 0; // Enable;
-
-	while (1) {
-		vTaskDelay(pdMS_TO_TICKS(2000));
-	}
-}
-
-
 static void setup_adc_dma(void) {
 	uint32_t before = DWT->CYCCNT;
 	// setup DMA first...
@@ -327,7 +302,6 @@ int main() {
 	}
 
 	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
-//	xTaskCreate(prvTask_ktimer_simple, "ktimer", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	vTaskStartScheduler();
 
