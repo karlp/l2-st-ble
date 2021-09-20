@@ -31,4 +31,4 @@ sources_freertos = [os.path.join("${FREERTOS}/", x) for x in Split("list.c queue
 sources_freertos += ["${FREERTOS_PORT}/port.c"]
 sources_freertos += ["${FREERTOS}/portable/MemMang/heap_1.c"]
 
-env.Firmware('main.elf', ['main.cpp'] + sources_freertos)
+env.Firmware('main.elf', ['main.cpp', 'syszyp.cpp'] + sources_freertos)

@@ -1,3 +1,5 @@
+#include <cstdio>
+
 #include <adc/adc_f3.h>
 #include <cortex_m/debug.h>
 #include <dma/dma.h>
@@ -292,6 +294,7 @@ static void prvTaskBlinkGreen(void *pvParameters)
 //		led_g.toggle();
 		ITM->stim_blocking(3, (uint16_t)kirq_count);
 		kirq_count = 0;
+		printf("testing: %d\n", i);
 	}
 }
 
