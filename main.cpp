@@ -14,12 +14,34 @@
 #include "task.h"
 #include "timers.h"
 
+#if defined (STM32WB)
+auto led_r = GPIOB[1];
+auto led_g = GPIOB[0];
+auto led_b = GPIOB[5];
+auto const ADC_CH_VREFINT = 0;
+auto const ADC_CH_TEMPSENSOR = 17;
+#elif defined(STM32F4)
+// Nucleo 144 boards at least...
+auto led_r = GPIOB[14];
+auto led_g = GPIOB[0];
+auto led_b = GPIOB[7];
+#elif defined(STM32F3)
+// f3 disco
+auto led_r = GPIOE[9];
+auto led_g = GPIOE[15];
+auto led_b = GPIOE[12];
+auto const ADC_CH_VREFINT = 18;
+auto const ADC_CH_TEMPSENSOR = 16;
+#endif
+
+
+#if defined(RUNNING_AT_32MHZ)
 /**
  * We just want to run at 32Mhz, so skip the "normal" rcc_init() full speed option
  */
 void krcc_init32(void) {
 	// Prefetch and both caches, plus 1WS for 32MHz
-	FLASH.ACR = 0x700 | 1;
+	FLASH->ACR = 0x700 | 1;
 
 	// Enable HSE.
 	RCC->CR |= (1<<16);
@@ -43,8 +65,8 @@ void krcc_init32(void) {
 	while((RCC->CFGR & (3 << 2)) != (3 << 2)); // SWS = PLL
 
 	// Leave prescalers alone...
-
 }
+#endif
 
 static volatile uint16_t adc_buf[5];
 static volatile uint16_t kdata[1024];
@@ -71,7 +93,6 @@ void adc_set_sampling(int sampling) {
 	ADC1.SMPR2 = reg;  // extra bits? yolo!
 }
 
-auto led_r = GPIOB[1];
 static void prvTask_ktimer_simple(void *pvParameters)
 {
 	(void)pvParameters;
@@ -96,28 +117,19 @@ static void prvTask_ktimer_simple(void *pvParameters)
 	}
 }
 
-static void prvTask_kadc(void *pvParameters)
-{
-	(void)pvParameters;
 
-	auto led_r = GPIOB[1];
-	led_r.set_mode(Pin::Output);
+static void setup_adc_dma(void) {
 	uint32_t before = DWT->CYCCNT;
-
-
-	RCC.enable(rcc::TIM2);
-	const auto freq = 5000;
-
-	TIM2->ARR = (32000000 / freq) - 1;
-	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
-	TIM2->CCER = 1 << 0;
-
 	// setup DMA first...
-	RCC.enable(rcc::DMAMUX1);
 	RCC.enable(rcc::DMA1);
-
+#if defined(STM32WB)
+	RCC.enable(rcc::DMAMUX1);
 	// Use DMA mux channel 0 / DMA Channel 1for ADC
 	DMAMUX1->CCR[0] = 5;
+#else
+	// F3 channel 1 is simply assigned to ADC
+#endif
+
 	DMA1->C[0].NDTR = 5;
 	DMA1->C[0].MAR = (uint32_t)&adc_buf;
 	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
@@ -132,10 +144,21 @@ static void prvTask_kadc(void *pvParameters)
 	interrupt_ctl.enable(interrupt::irq::DMA1_CH1);
 
 	// Turn on the ADC then we'll do other things while it's waking up.
+#if defined(STM32WB)
 	RCC.enable(rcc::ADC1);
 	// Make sure we give it a clock!
 	RCC->CCIPR |= (3<<28); // Use sysclk for now. We may want to run it slower later.
+	// and prescale to 32MHZ from 64.
+	ADC_COMMON1.CCR |= (1<<18);
 	ADC1.CR = (1<<28);  // turn off deep power down (bit 29) and enables vreg
+#else
+	// default laks clocking is... not applicable
+	// sysclk / 2 is 36, so pretty close to WB....
+	RCC->CFGR2 = (0b10001 << 9) | (0b10001 << 4);
+	RCC.enable(rcc::ADC12);
+	ADC1.CR = 0;
+	ADC1.CR = (1<<28);
+#endif
 	// waiting for adc vreg is max 20 usecs, FIXME: get a shorter loop for usecs..
 	// (20usecs is 640 cycles at 32MHz, fyi... so we're always going to be waiting...)
 	ITM->STIM[2].u16 = DWT->CYCCNT - before;
@@ -167,13 +190,13 @@ static void prvTask_kadc(void *pvParameters)
 	// TODO: cube sets up OVERRUN interrupt?  is it worth handling that? Even just rebooting? flagging that we've got bad data?
 
 	// turn on temp sensor and vrefint
-	ADC_COMMON.CCR |= (1<<23) | (1<<22);
+	ADC_COMMON1.CCR |= (1<<23) | (1<<22);
 
 	// FIXME - recalculate based on final ADC clocks:
 	// at 32Mhz, 4us = 128, 5us = 160, and 12 = 384
 	adc_set_sampling(4); //4 == 47.5 clocks on all for starters.
-	adc_set_sampling(0, 0b110); // that's 247, but 92 is too low
-	adc_set_sampling(17, 0b110); // that's 247, but 92 is too low
+	adc_set_sampling(ADC_CH_VREFINT, 0b110); // that's 247, but 92 is too low
+	adc_set_sampling(ADC_CH_TEMPSENSOR, 0b110); // that's 247, but 92 is too low
 
 	// I want ext11, which is tim2 trgo
 	ADC1.CFGR = (1<<31)  // LEave JQDIS
@@ -190,8 +213,29 @@ static void prvTask_kadc(void *pvParameters)
 	ADC1.SQR1 |= (1<<(6*1));
 	ADC1.SQR1 |= (2<<(6*2));
 	ADC1.SQR1 |= (6<<(6*3));  // external 1,2,6
-	ADC1.SQR1 |= (17<<(6*4)); // temp sensor
-	ADC1.SQR2 = (18 << (6*0)); // vrefint
+	ADC1.SQR1 |= (ADC_CH_TEMPSENSOR<<(6*4));
+	ADC1.SQR2 = (ADC_CH_VREFINT << (6*0));
+}
+
+static void prvTask_kadc(void *pvParameters)
+{
+	(void)pvParameters;
+
+	led_r.set_mode(Pin::Output);
+
+
+	RCC.enable(rcc::TIM2);
+	const auto freq = 5000;
+
+	TIM2->ARR = (32000000 / freq) - 1;
+	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
+	TIM2->CCER = 1 << 0;
+
+#if defined(STM32WB) || defined (STM32F3)
+	setup_adc_dma();
+#else
+#error "NO ADC DMA SUPPORT YET"
+#endif
 
 	// Finally, start the timer that is going to do the counting....
 	TIM2->CR1 = 1 << 0; // Enable;
@@ -218,7 +262,7 @@ template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	if (DMA1->ISR & (1<<1)) { // CH1 TCIF
 		DMA1->IFCR = (1<<1);
-		ITM->STIM[1].u16 = adc_buf[kinteresting];
+		ITM->STIM[1].u16 = adc_buf[kinteresting] & 0xfff;
 		kdata[kindex++] = adc_buf[kinteresting];
 		if (kindex >= 1024) {
 			kindex = 0;
@@ -232,7 +276,6 @@ void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 }
 
 static TimerHandle_t xBlueTimer;
-auto led_b = GPIOB[5];
 static void prvTimerBlue(TimerHandle_t xTimer)
 {
 	/* Timers can only work on globals, boo,
@@ -245,7 +288,6 @@ static void prvTimerBlue(TimerHandle_t xTimer)
 static void prvTaskBlinkGreen(void *pvParameters)
 {
 	(void)pvParameters;
-	auto led_g = GPIOB[0];
 	led_g.set_mode(Pin::Output);
 
 	int i = 0;
@@ -259,11 +301,16 @@ static void prvTaskBlinkGreen(void *pvParameters)
 
 
 int main() {
+#if defined(RUNNING_AT_32MHZ)
 	krcc_init32();
+#else
+	rcc_init();
+#endif
 	// Turn on DWT_CYCNT.  We'll use it ourselves, and pc sampling needs it too.
 	DWT->CTRL |= 1;
 
 	RCC.enable(rcc::GPIOB);
+	RCC.enable(rcc::GPIOE);
 
 	xTaskCreate(prvTaskBlinkGreen, "green.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 

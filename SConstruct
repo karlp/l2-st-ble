@@ -12,6 +12,7 @@ env.SetDefault(
 #env.SelectMCU('stm32f427vi')
 #env.SelectMCU('gd32vf103cb')
 env.SelectMCU('stm32wb55rg')
+#env.SelectMCU('stm32f303vc')
 
 env.Append(
 	CXXFLAGS = Split('-fcoroutines -Wno-volatile'),
