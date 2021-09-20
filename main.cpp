@@ -202,7 +202,12 @@ static void prvTask_kadc(void *pvParameters)
 	RCC.enable(rcc::TIM2);
 	const auto freq = 5000;
 
-	TIM2->ARR = (32000000 / freq) - 1;
+#if defined(STM32WB)
+	const auto tim_clk = 64000000;
+#elif defined (STM32F3)
+	const auto tim_clk = 72000000;
+#endif
+	TIM2->ARR = (tim_clk / freq) - 1;
 	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
 	TIM2->CCER = 1 << 0;
 
