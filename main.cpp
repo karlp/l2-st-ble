@@ -34,6 +34,8 @@ auto const ADC_CH_VREFINT = 18;
 auto const ADC_CH_TEMPSENSOR = 16;
 #endif
 
+auto const ADC_DMA_LOOPS = 16;
+
 
 #if defined(RUNNING_AT_32MHZ)
 /**
@@ -68,10 +70,11 @@ void krcc_init32(void) {
 }
 #endif
 
-static volatile uint16_t adc_buf[5];
+static volatile uint16_t adc_buf[5*ADC_DMA_LOOPS];
 static volatile uint16_t kdata[1024];
 static volatile int kindex = 0;
 static volatile int kinteresting = 4;
+static volatile int kirq_count = 0;
 
 void adc_set_sampling(unsigned channel, int sampling) {
 	if (channel < 10) {
@@ -105,7 +108,7 @@ static void setup_adc_dma(void) {
 	// F3 channel 1 is simply assigned to ADC
 #endif
 
-	DMA1->C[0].NDTR = 5;
+	DMA1->C[0].NDTR = 5 * ADC_DMA_LOOPS;
 	DMA1->C[0].MAR = (uint32_t)&adc_buf;
 	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
 	DMA1->C[0].CR = 0
@@ -223,7 +226,7 @@ static void prvTask_kadc(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-	        ITM->STIM[0].u8 = 'A' + (i%26);
+	        ITM->stim_blocking(0, (uint8_t)('A' + (i%26)));
 //		led_r.toggle();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
@@ -232,27 +235,38 @@ static void prvTask_kadc(void *pvParameters)
 }
 
 
-template <>
-void interrupt::handler<interrupt::irq::TIM2>() {
-	TIM2->SR = ~(1<<0); // Clear UIF
-//	led_r.toggle();
-}
+
+
+//template <>
+//void interrupt::handler<interrupt::irq::TIM2>() {
+//	TIM2->SR = ~(1<<0); // Clear UIF
+////	led_r.toggle();
+//}
 
 template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
+	uint32_t before = DWT->CYCCNT;
+	kirq_count++;
 	if (DMA1->ISR & (1<<1)) { // CH1 TCIF
 		DMA1->IFCR = (1<<1);
-		ITM->STIM[1].u16 = adc_buf[kinteresting] & 0xfff;
-		kdata[kindex++] = adc_buf[kinteresting];
-		if (kindex >= 1024) {
-			kindex = 0;
+		for (auto i = 0; i < ADC_DMA_LOOPS; i++) {
+			uint16_t samp = adc_buf[(i * 5) + kinteresting];
+			kdata[kindex++] = samp;
+			ITM->stim_blocking(1, samp);
+			if (kindex >= 1024) {
+				kindex = 0;
+			}
 		}
+//		ITM->STIM[1].u16 = adc_buf[kinteresting] & 0xfff;
+//		ITM->stim_blocking(1, adc_buf[kinteresting]);
 	}
 	if (DMA1->ISR & (1<<3)) {
 		// Errors...
 		DMA1->IFCR = (1<<3); // clear it at least.
 		ITM->STIM[0].u8 = '!';
 	}
+//	ITM->stim_blocking(2, DWT->CYCCNT - before);
+	ITM->STIM[2].u32 = DWT->CYCCNT - before;
 }
 
 static TimerHandle_t xBlueTimer;
@@ -273,9 +287,11 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-		vTaskDelay(pdMS_TO_TICKS(100));
-	        ITM->STIM[0].u8 = 'a' + (i%26);
+		vTaskDelay(pdMS_TO_TICKS(1000));
+	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
 //		led_g.toggle();
+		ITM->stim_blocking(3, (uint16_t)kirq_count);
+		kirq_count = 0;
 	}
 }
 
