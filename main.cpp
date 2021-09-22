@@ -75,7 +75,7 @@ void krcc_init32(void) {
 static volatile uint16_t adc_buf[5*ADC_DMA_LOOPS];
 static volatile uint16_t kdata[1024];
 static volatile int kindex = 0;
-static volatile int kinteresting = 4;
+static volatile int kinteresting = 0;
 static volatile int kirq_count = 0;
 
 void adc_set_sampling(unsigned channel, int sampling) {
@@ -184,6 +184,12 @@ static void setup_adc_dma(void) {
 		| (11<<6) // EXTI11 for tim2 trgo
 		| (3) // DMA circular + DMA enable
 		;
+
+	// 8 times oversampling, all on each trigger. (ie, we don't need to change trigger rate)
+	// this gives me 15 bit signal output...
+	ADC1.CFGR2 = (2<<2) | (1<<0); // OVSR = 2 | ROVSE
+	//ADC1.CFGR2 |= (1<<5); // OVSS = 1
+
 	// Set ADC to start when it starts getting triggers
 	ADC1.CR |= (1<<2);
 
