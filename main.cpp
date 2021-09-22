@@ -235,7 +235,7 @@ static void prvTask_kadc(void *pvParameters)
 	while (1) {
 		i++;
 	        ITM->stim_blocking(0, (uint8_t)('A' + (i%26)));
-//		led_r.toggle();
+		led_r.toggle();
 		vTaskDelay(pdMS_TO_TICKS(1000));
 	}
 
@@ -283,7 +283,7 @@ static void prvTimerBlue(TimerHandle_t xTimer)
 	/* Timers can only work on globals, boo,
 	 * no, (ab)using pvTimerGetTimerID doesn't sound worthwhile */
         (void) xTimer;
-//        led_b.toggle();
+        led_b.toggle();
 }
 
 
@@ -295,9 +295,9 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-		vTaskDelay(pdMS_TO_TICKS(1000));
+		vTaskDelay(pdMS_TO_TICKS(100));
 	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
-//		led_g.toggle();
+		led_g.toggle();
 		ITM->stim_blocking(3, (uint16_t)kirq_count);
 		kirq_count = 0;
 		printf("testing: %d\n", i);
