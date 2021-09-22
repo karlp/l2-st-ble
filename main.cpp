@@ -251,12 +251,26 @@ static void prvTask_kadc(void *pvParameters)
 ////	led_r.toggle();
 //}
 
+template <typename T1>
+constexpr auto dma_teif(T1 channel) { return (8<<(channel * 4)); }
+template <typename T1>
+constexpr auto dma_htif(T1 channel) { return (4<<(channel * 4)); }
+template <typename T1>
+constexpr auto dma_tcif(T1 channel) { return (2<<(channel * 4)); }
+template <typename T1>
+constexpr auto dma_gif(T1 channel) { return (1<<(channel * 4)); }
+
 template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	uint32_t before = DWT->CYCCNT;
 	kirq_count++;
-	if (DMA1->ISR & (1<<1)) { // CH1 TCIF
-		DMA1->IFCR = (1<<1);
+	if (DMA1->ISR & dma_htif(0)) {
+		DMA1->IFCR = dma_htif(0);
+		// TODO - notify processing task to do first chunk
+	}
+
+	if (DMA1->ISR & dma_tcif(0)) { // CH1 TCIF
+		DMA1->IFCR = dma_tcif(0);
 		for (auto i = 0; i < ADC_DMA_LOOPS; i++) {
 			uint16_t samp = adc_buf[(i * 5) + kinteresting];
 			kdata[kindex++] = samp;
@@ -268,9 +282,9 @@ void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 //		ITM->STIM[1].u16 = adc_buf[kinteresting] & 0xfff;
 //		ITM->stim_blocking(1, adc_buf[kinteresting]);
 	}
-	if (DMA1->ISR & (1<<3)) {
+	if (DMA1->ISR & dma_teif(0)) {
 		// Errors...
-		DMA1->IFCR = (1<<3); // clear it at least.
+		DMA1->IFCR = dma_teif(0); // clear it at least.
 		ITM->STIM[0].u8 = '!';
 	}
 //	ITM->stim_blocking(2, DWT->CYCCNT - before);
