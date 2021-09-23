@@ -44,6 +44,25 @@ sources_freertos += ["${FREERTOS}/portable/MemMang/heap_1.c"]
 env.SetDefault(CMSIS = "#cmsis/CMSIS") # SetDefault allows overriding this from env vars
 env.Append(CPPPATH = ["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
 
+# Provide defines and things for cmsis-dsp based on selected mcu...
+dsp_opts = {
+	"cortex-m7f": {"defs": ["CORTEXM", "ARMCM7_DP"]},
+	"cortex-m4f": {"defs": ["CORTEXM", "ARMCM4_FP"]},
+	"cortex-m3": {"defs": ["CORTEXM", "ARMCM3"]},
+	"cortex-m0": {"defs": ["CORTEXM", "ARMCM0"]},
+	"cortex-m0+": {"defs": ["CORTEXM", "ARMCM0P"]},
+}
+env.Append(CPPDEFINES = dsp_opts.get(env["PLATFORM_SPEC"]["meta"]["cpu"], {"defs": []})["defs"])
+
+# Optional configuration flags you may wish to apply, uncomment as you see fit
+dsp_flags = [
+	#"ARM_MATH_LOOPUNROLL",
+	#"ARM_MATH_ROUNDING",
+	#"ARM_MATH_MATRIX_CHECK",
+	#"ARM_MATH_AUTOVECTORIZE",
+]
+env.Append(CPPDEFINES = dsp_flags)
+
 # Individually select what you like here
 dsp_modules = [
 #	"BayesFunctions",
