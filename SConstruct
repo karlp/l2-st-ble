@@ -40,4 +40,31 @@ sources_freertos = [os.path.join("${FREERTOS}/", x) for x in Split("list.c queue
 sources_freertos += ["${FREERTOS_PORT}/port.c"]
 sources_freertos += ["${FREERTOS}/portable/MemMang/heap_1.c"]
 
+####### CMSIS-DSP
+env.SetDefault(CMSIS = "#cmsis/CMSIS") # SetDefault allows overriding this from env vars
+env.Append(CPPPATH = ["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
+
+# Individually select what you like here
+dsp_modules = [
+#	"BayesFunctions",
+	"TransformFunctions",
+	"StatisticsFunctions",
+#	"ComplexMathFunctions",
+	"BasicMathFunctions",
+#	"ControllerFunctions",
+	"CommonTables",
+	"FilteringFunctions",
+#	"InterpolationFunctions",
+#	"QuaternionMathFunctions",
+#	"DistanceFunctions",
+	"SupportFunctions",
+#	"FastMathFunctions",
+#	"MatrixFunctions",
+#	"SVMFunctions",
+]
+sources_dsp = [Glob(os.path.join("%s/DSP/Source" % env["CMSIS"], sdir, "*.c")) for sdir in dsp_modules]
+env.StaticLibrary("cmsisdsp", sources_dsp)
+######
+
+env.Append(LIBS = "cmsisdsp", LIBPATH=".")
 env.Firmware('main.elf', ['main.cpp', 'syszyp.cpp'] + sources_freertos)
