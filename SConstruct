@@ -2,11 +2,6 @@
 import os.path
 
 env = SConscript('laks/build/env.py')
-env.SetDefault(
-        FREERTOS = "#freertos",
-        FREERTOS_PORT = "#freertos/portable/GCC/ARM_CM4F",  # TODO - pull it out of selectmcu's result? hahaha
-        )
-
 #env.SelectMCU('stm32f746ng')
 #env.SelectMCU('stm32f407vg')
 #env.SelectMCU('stm32f427vi')
@@ -18,6 +13,20 @@ env.Append(
 	CXXFLAGS = Split('-fcoroutines -Wno-volatile'),
 	LINKFLAGS = Split('--specs=nano.specs'),
 )
+
+freertos_arch = {
+	"cortex-m7f": "ARM_CM7/r0p1",
+	"cortex-m4f": "ARM_CM4F",
+	"cortex-m3": "ARM_CM3",
+	"cortex-m0": "ARM_CM0",
+	"cortex-m0+": "ARM_CM0",
+	"rv32imac": "RISC-V",
+}
+
+env.SetDefault(
+        FREERTOS = "#freertos",
+        FREERTOS_PORT = "#freertos/portable/GCC/%s" % freertos_arch.get(env["PLATFORM_SPEC"]["meta"]["cpu"], "UNKNOWN_FREERTOS_ARCH"),
+        )
 
 env.Append(
 	CPPPATH = [
