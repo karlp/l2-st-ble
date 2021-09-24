@@ -71,7 +71,7 @@ dsp_modules = [
 #	"ComplexMathFunctions",
 	"BasicMathFunctions",
 #	"ControllerFunctions",
-	"CommonTables",
+#	"CommonTables",
 	"FilteringFunctions",
 #	"InterpolationFunctions",
 #	"QuaternionMathFunctions",
