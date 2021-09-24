@@ -15,6 +15,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
+#include "arm_math.h"
 
 #if defined (STM32WB)
 auto led_r = GPIOB[1];
@@ -37,6 +38,13 @@ auto const ADC_CH_TEMPSENSOR = 16;
 #endif
 
 auto const ADC_DMA_LOOPS = 16;
+auto const ADC_CHANNELS_FILTERED = 5; // FIXME - only filter interesting channels, not all channels
+
+enum task_kadc_notifications {
+	dma_half,
+	dma_full,
+	dma_error
+};
 
 
 #if defined(RUNNING_AT_32MHZ)
@@ -78,6 +86,50 @@ static volatile int kindex = 0;
 static volatile int kinteresting = 0;
 static volatile int kirq_count = 0;
 
+static TaskHandle_t th_kadc;
+
+float filter_coeffs[5] = {
+	//Highpass filter.
+	0.98890664175318121476f,
+	-1.97781250269692354671f,
+	0.98890664175318121476f,
+	1.97768943628937332591f,
+	-0.97793634991391276134f,
+};
+
+
+class KAdcFilter {
+private:
+	float32_t filter_state[4];
+	arm_biquad_casd_df1_inst_f32 filter_instance;
+
+public:
+	int scale;
+	// TODO - can this not just be a constructor?
+	/// Initialize filters and internal states
+	/// \param filter_coeffs pointer to an array of properly formed filter co-efficients.
+	/// \param num_stages biquad stages.  coeffs must be n*5 long.
+	/// \param scaling how much to sclae down inputs to make floats
+	void init(const float *filter_coeffs, int num_stages, int scaling)
+	{
+		arm_biquad_cascade_df1_init_f32(&filter_instance, num_stages, filter_coeffs, filter_state);
+		this->scale = scaling;
+	}
+
+	float feed(float &input) {
+		float out;
+		arm_biquad_cascade_df1_f32(&filter_instance, &input, &out, 1);
+		return out;
+	}
+};
+
+
+struct adc_task_state_t {
+	KAdcFilter filter[ADC_CHANNELS_FILTERED];
+};
+
+struct adc_task_state_t adc_task_state;
+
 void adc_set_sampling(unsigned channel, int sampling) {
 	if (channel < 10) {
 		ADC1.SMPR1 &= ~(0x7<<(3*channel));
@@ -118,7 +170,7 @@ static void setup_adc_dma(void) {
 		| (1<<8) // psize 16bit
 		| (1<<7) // minc plz
 		| (1<<5) // circ plz
-		| (5<<1) // TE+TC irqs plz
+		| (7<<1) // TE+TC+HT irqs plz
 		| 1 // enable, will do nothing without requests
 		;
 	interrupt_ctl.enable(interrupt::irq::DMA1_CH1);
@@ -203,9 +255,41 @@ static void setup_adc_dma(void) {
 	ADC1.SQR2 = (ADC_CH_VREFINT << (6*0));
 }
 
+// TODO - calibrate based on vref int, we know from experience this improves things
+//static float compensate_vref(uint16_t adc_count, uint16_t vref_count)
+//{
+//	// could read from system rom every call actually
+//	float ret = adc_count * VREFINT_CAL;
+//	return (ret / vref_count);
+//}
+
+
+void adc_process_samples(adc_task_state_t* ts, auto i){
+	for (int k = 0; k < ADC_CHANNELS_FILTERED; k++) {
+		float f;
+		uint16_t raw = adc_buf[(i * ADC_CHANNELS_FILTERED) + k];
+		//f = compensate_vref(raw, adc_buf[(i*ADC_CHANNELS_FILTERED) + 4]);
+		f = raw;
+		// Remember, input samples need to be in the range of 0..1!
+		f /= ts->filter[k].scale;
+		float out = ts->filter[k].feed(f);
+		if (kinteresting >= 0 && kinteresting == k) {
+			ITM->stim_blocking(1, raw);
+			ITM->stim_blocking(4, out);
+
+		}
+	}
+}
+
 static void prvTask_kadc(void *pvParameters)
 {
-	(void)pvParameters;
+	struct adc_task_state_t *ts = (struct adc_task_state_t*)pvParameters;
+
+	// setup adc filters
+	for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
+		// Careful! scaling here depends on oversampling!
+		ts->filter[i].init(filter_coeffs, 1, 32768);
+	}
 
 	led_r.set_mode(Pin::Output);
 
@@ -231,12 +315,27 @@ static void prvTask_kadc(void *pvParameters)
 	// Finally, start the timer that is going to do the counting....
 	TIM2->CR1 = 1 << 0; // Enable;
 
-	int i = 0;
+	int stats_dma_err = 0;
+	uint32_t flags;
 	while (1) {
-		i++;
-	        ITM->stim_blocking(0, (uint8_t)('A' + (i%26)));
-		led_r.toggle();
-		vTaskDelay(pdMS_TO_TICKS(1000));
+		xTaskNotifyWait(0, UINT32_MAX, &flags, portMAX_DELAY);
+		// BE CAREFUL HERE TO SKIP THE NON-FILTERED CHANNELS! (vref and tempsens)
+		// (eventually, for now we're just going to filter them all...
+		if (flags & (1<<dma_half)) {
+			for (auto i = 0; i < ADC_DMA_LOOPS / 2; i++) {
+				adc_process_samples(ts, i);
+			}
+
+		}
+		if (flags & (1<<dma_full)) {
+			for (auto i = ADC_DMA_LOOPS / 2; i < ADC_DMA_LOOPS; i++) {
+				adc_process_samples(ts, i);
+			}
+		}
+		if (flags & (1<<dma_error)) {
+			stats_dma_err++;
+			printf("DMA Error: %d!\n", stats_dma_err);
+		}
 	}
 
 
@@ -251,44 +350,58 @@ static void prvTask_kadc(void *pvParameters)
 ////	led_r.toggle();
 //}
 
+#if defined(TEMPLATES_ARE_COOL)
 template <typename T1>
-constexpr auto dma_teif(T1 channel) { return (8<<(channel * 4)); }
+constexpr auto dma_flag_teif(T1 channel) { return (8<<(channel * 4)); }
 template <typename T1>
-constexpr auto dma_htif(T1 channel) { return (4<<(channel * 4)); }
+constexpr auto dma_flag_htif(T1 channel) { return (4<<(channel * 4)); }
 template <typename T1>
-constexpr auto dma_tcif(T1 channel) { return (2<<(channel * 4)); }
+constexpr auto dma_flag_tcif(T1 channel) { return (2<<(channel * 4)); }
 template <typename T1>
-constexpr auto dma_gif(T1 channel) { return (1<<(channel * 4)); }
+constexpr auto dma_flag_gif(T1 channel) { return (1<<(channel * 4)); }
+#else
+constexpr auto dma_flag_teif(auto channel) { return (8<<(channel * 4)); }
+constexpr auto dma_flag_htif(auto channel) { return (4<<(channel * 4)); }
+constexpr auto dma_flag_tcif(auto channel) { return (2<<(channel * 4)); }
+constexpr auto dma_flag_gif(auto channel) { return (1<<(channel * 4)); }
+#endif
 
 template <>
 void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 	uint32_t before = DWT->CYCCNT;
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	kirq_count++;
-	if (DMA1->ISR & dma_htif(0)) {
-		DMA1->IFCR = dma_htif(0);
+	if (DMA1->ISR & dma_flag_htif(0)) {
+		DMA1->IFCR = dma_flag_htif(0);
 		// TODO - notify processing task to do first chunk
+		xTaskNotifyFromISR(th_kadc, (1<<dma_half), eSetBits, &xHigherPriorityTaskWoken);
 	}
 
-	if (DMA1->ISR & dma_tcif(0)) { // CH1 TCIF
-		DMA1->IFCR = dma_tcif(0);
-		for (auto i = 0; i < ADC_DMA_LOOPS; i++) {
-			uint16_t samp = adc_buf[(i * 5) + kinteresting];
-			kdata[kindex++] = samp;
-			ITM->stim_blocking(1, samp);
-			if (kindex >= 1024) {
-				kindex = 0;
+	if (DMA1->ISR & dma_flag_tcif(0)) { // CH1 TCIF
+		DMA1->IFCR = dma_flag_tcif(0);
+		xTaskNotifyFromISR(th_kadc, (1<<dma_full), eSetBits, &xHigherPriorityTaskWoken);
+		// Allow turning off this processing at runtime.
+#if defined(SAVE_TO_SECOND_BUFFER)
+		if (kinteresting >= 0) {
+			for (auto i = 0; i < ADC_DMA_LOOPS; i++) {
+				uint16_t samp = adc_buf[(i * 5) + kinteresting];
+				kdata[kindex++] = samp;
+				ITM->stim_blocking(1, samp);
+				if (kindex >= 1024) {
+					kindex = 0;
+				}
 			}
 		}
-//		ITM->STIM[1].u16 = adc_buf[kinteresting] & 0xfff;
-//		ITM->stim_blocking(1, adc_buf[kinteresting]);
+#endif
 	}
-	if (DMA1->ISR & dma_teif(0)) {
+	if (DMA1->ISR & dma_flag_teif(0)) {
 		// Errors...
-		DMA1->IFCR = dma_teif(0); // clear it at least.
+		DMA1->IFCR = dma_flag_teif(0); // clear it at least.
+		xTaskNotifyFromISR(th_kadc, (1<<dma_error), eSetBits, &xHigherPriorityTaskWoken);
 		ITM->STIM[0].u8 = '!';
 	}
-//	ITM->stim_blocking(2, DWT->CYCCNT - before);
 	ITM->STIM[2].u32 = DWT->CYCCNT - before;
+	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 static TimerHandle_t xBlueTimer;
@@ -309,7 +422,7 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-		vTaskDelay(pdMS_TO_TICKS(100));
+		vTaskDelay(pdMS_TO_TICKS(500));
 	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
 		led_g.toggle();
 		ITM->stim_blocking(3, (uint16_t)kirq_count);
@@ -345,7 +458,10 @@ int main() {
 		// boooo!!!!! fixme trace?
 	}
 
-	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
+	// Required to use FreeRTOS ISR methods!
+	NVIC.set_priority(interrupt::irq::DMA1_CH1, 6<<configPRIO_BITS);
+
+	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, &adc_task_state, tskIDLE_PRIORITY + 1, &th_kadc);
 
 	vTaskStartScheduler();
 
