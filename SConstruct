@@ -32,7 +32,7 @@ env.Append(
 	CPPPATH = [
             "${FREERTOS}/include",
             "${FREERTOS_PORT}",
-            "#.",
+            "#src",
             ],
 )
 
