@@ -42,7 +42,7 @@ sources_freertos += ["${FREERTOS}/portable/MemMang/heap_1.c"]
 
 ####### CMSIS-DSP
 env.SetDefault(CMSIS = "#cmsis/CMSIS") # SetDefault allows overriding this from env vars
-env.Append(CPPPATH = ["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
+env.Append(CPPPATH = ["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include"])
 
 # Provide defines and things for cmsis-dsp based on selected mcu...
 dsp_opts = {
@@ -82,7 +82,7 @@ dsp_modules = [
 #	"SVMFunctions",
 ]
 sources_dsp = [Glob(os.path.join("%s/DSP/Source" % env["CMSIS"], sdir, "*.c")) for sdir in dsp_modules]
-env.StaticLibrary("cmsisdsp", sources_dsp)
+env.StaticLibrary("cmsisdsp", sources_dsp, CPPPATH=["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
 ######
 
 env.Append(LIBS = "cmsisdsp", LIBPATH=".")
