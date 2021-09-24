@@ -9,6 +9,8 @@ env = SConscript('extern/laks/build/env.py')
 env.SelectMCU('stm32wb55rg')
 #env.SelectMCU('stm32f303vc')
 
+env.SetOption("num_jobs", 8) # TODO - get this from the system
+
 env.Append(
 	CXXFLAGS = Split('-fcoroutines -Wno-volatile'),
 	LINKFLAGS = Split('--specs=nano.specs'),
