@@ -86,4 +86,4 @@ env.StaticLibrary("cmsisdsp", sources_dsp, CPPPATH=["${CMSIS}/Core/Include", "${
 ######
 
 env.Append(LIBS = "cmsisdsp", LIBPATH=".")
-env.Firmware('main.elf', ['main.cpp', 'syszyp.cpp'] + sources_freertos)
+env.Firmware('main.elf', [os.path.join('src', x) for x in ['main.cpp', 'syszyp.cpp']] + sources_freertos)

@@ -1,6 +1,7 @@
 #include <cstdio>
 
 #include <adc/adc_f3.h>
+#include <cal/cal.h>
 #include <cortex_m/debug.h>
 #include <dma/dma.h>
 #include <gpio/gpio.h>
