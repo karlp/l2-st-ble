@@ -84,8 +84,11 @@ dsp_modules = [
 #	"SVMFunctions",
 ]
 sources_dsp = [Glob(os.path.join("%s/DSP/Source" % env["CMSIS"], sdir, "*.c")) for sdir in dsp_modules]
-env.StaticLibrary("cmsisdsp", sources_dsp, CPPPATH=["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
+# Don't clean this library, we aren't ever actually editing it.
+# Note, this still does the right thing if you _do_ edit the dsp source files.
+if not env.GetOption('clean'):
+	env.StaticLibrary("${CMSIS}/cmsisdsp", sources_dsp, CPPPATH=["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
 ######
 
-env.Append(LIBS = "cmsisdsp", LIBPATH=".")
+env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
 env.Firmware('main.elf', [os.path.join('src', x) for x in ['main.cpp', 'syszyp.cpp']] + sources_freertos)
