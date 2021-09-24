@@ -1,9 +1,9 @@
 [submodule "laks"]
-	path = laks
+	path = extern/laks
 	url = git@github.com:karlp/laks.git
 [submodule "freertos"]
-	path = freertos
+	path = extern/freertos
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
 [submodule "cmsis"]
-	path = cmsis
+	path = extern/cmsis
 	url = https://github.com/ARM-software/CMSIS_5.git

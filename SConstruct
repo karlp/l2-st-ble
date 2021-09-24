@@ -1,7 +1,7 @@
 #!python
 import os.path
 
-env = SConscript('laks/build/env.py')
+env = SConscript('extern/laks/build/env.py')
 #env.SelectMCU('stm32f746ng')
 #env.SelectMCU('stm32f407vg')
 #env.SelectMCU('stm32f427vi')
@@ -24,8 +24,8 @@ freertos_arch = {
 }
 
 env.SetDefault(
-        FREERTOS = "#freertos",
-        FREERTOS_PORT = "#freertos/portable/GCC/%s" % freertos_arch.get(env["PLATFORM_SPEC"]["meta"]["cpu"], "UNKNOWN_FREERTOS_ARCH"),
+        FREERTOS = "#extern/freertos",
+        FREERTOS_PORT = "#extern/freertos/portable/GCC/%s" % freertos_arch.get(env["PLATFORM_SPEC"]["meta"]["cpu"], "UNKNOWN_FREERTOS_ARCH"),
         )
 
 env.Append(
@@ -41,7 +41,7 @@ sources_freertos += ["${FREERTOS_PORT}/port.c"]
 sources_freertos += ["${FREERTOS}/portable/MemMang/heap_1.c"]
 
 ####### CMSIS-DSP
-env.SetDefault(CMSIS = "#cmsis/CMSIS") # SetDefault allows overriding this from env vars
+env.SetDefault(CMSIS = "#extern/cmsis/CMSIS") # SetDefault allows overriding this from env vars
 env.Append(CPPPATH = ["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include"])
 
 # Provide defines and things for cmsis-dsp based on selected mcu...
