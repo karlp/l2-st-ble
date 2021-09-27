@@ -1,5 +1,5 @@
-source laks/gdb_plugins/mmio.py
-source laks/gdb_plugins/rblog.py
+source extern/laks/gdb_plugins/mmio.py
+source extern/laks/gdb_plugins/rblog.py
 
 
 set $ITMBASE=0xE0000000
