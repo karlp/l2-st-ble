@@ -89,14 +89,17 @@ static volatile int kirq_count = 0;
 
 static TaskHandle_t th_kadc;
 
-float filter_coeffs[5] = {
-	//Highpass filter.
-	0.98890664175318121476f,
-	-1.97781250269692354671f,
-	0.98890664175318121476f,
-	1.97768943628937332591f,
-	-0.97793634991391276134f,
-};
+// >>> freq = 5000
+// >>> b,a = scipy.signal.iirfilter(1, 20/freq, btype="highpass")
+// >>> filter_model.dump_arm_cmsis(b,a)
+float32_t filter_coeffs[5] = {
+                0.99375596495365714489f,
+               -0.99375596495365714489f,
+                0.00000000000000000000f,
+                0.98751192990731440080f,
+               -0.00000000000000000000f,
+
+        };
 
 
 class KAdcFilter {
@@ -105,19 +108,16 @@ private:
 	arm_biquad_casd_df1_inst_f32 filter_instance;
 
 public:
-	int scale;
 	// TODO - can this not just be a constructor?
 	/// Initialize filters and internal states
 	/// \param filter_coeffs pointer to an array of properly formed filter co-efficients.
 	/// \param num_stages biquad stages.  coeffs must be n*5 long.
-	/// \param scaling how much to sclae down inputs to make floats
-	void init(const float *filter_coeffs, int num_stages, int scaling)
+	void init(const float *filter_coeffs, int num_stages)
 	{
 		arm_biquad_cascade_df1_init_f32(&filter_instance, num_stages, filter_coeffs, filter_state);
-		this->scale = scaling;
 	}
 
-	float feed(float &input) {
+	float feed(const float &input) {
 		float out;
 		arm_biquad_cascade_df1_f32(&filter_instance, &input, &out, 1);
 		return out;
@@ -127,6 +127,8 @@ public:
 
 struct adc_task_state_t {
 	KAdcFilter filter[ADC_CHANNELS_FILTERED];
+
+	float sum_squares[ADC_CHANNELS_FILTERED];
 };
 
 struct adc_task_state_t adc_task_state;
@@ -271,9 +273,8 @@ void adc_process_samples(adc_task_state_t* ts, auto i){
 		uint16_t raw = adc_buf[(i * ADC_CHANNELS_FILTERED) + k];
 		//f = compensate_vref(raw, adc_buf[(i*ADC_CHANNELS_FILTERED) + 4]);
 		f = raw;
-		// Remember, input samples need to be in the range of 0..1!
-		f /= ts->filter[k].scale;
 		float out = ts->filter[k].feed(f);
+		ts->sum_squares[k] += (out * out);
 		if (kinteresting >= 0 && kinteresting == k) {
 			ITM->stim_blocking(1, raw);
 			ITM->stim_blocking(4, out);
@@ -288,8 +289,8 @@ static void prvTask_kadc(void *pvParameters)
 
 	// setup adc filters
 	for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
-		// Careful! scaling here depends on oversampling!
-		ts->filter[i].init(filter_coeffs, 1, 32768);
+		ts->filter[i].init(filter_coeffs, 1);
+		ts->sum_squares[i] = 0.0f;
 	}
 
 	led_r.set_mode(Pin::Output);
@@ -318,6 +319,7 @@ static void prvTask_kadc(void *pvParameters)
 
 	int stats_dma_err = 0;
 	uint32_t flags;
+	int index = 0;
 	while (1) {
 		xTaskNotifyWait(0, UINT32_MAX, &flags, portMAX_DELAY);
 		// BE CAREFUL HERE TO SKIP THE NON-FILTERED CHANNELS! (vref and tempsens)
@@ -326,16 +328,25 @@ static void prvTask_kadc(void *pvParameters)
 			for (auto i = 0; i < ADC_DMA_LOOPS / 2; i++) {
 				adc_process_samples(ts, i);
 			}
+			index += ADC_DMA_LOOPS / 2;
 
 		}
 		if (flags & (1<<dma_full)) {
 			for (auto i = ADC_DMA_LOOPS / 2; i < ADC_DMA_LOOPS; i++) {
 				adc_process_samples(ts, i);
 			}
+			index += ADC_DMA_LOOPS / 2;
 		}
 		if (flags & (1<<dma_error)) {
 			stats_dma_err++;
 			printf("DMA Error: %d!\n", stats_dma_err);
+		}
+		if (index > 4000) {
+			index = 0;
+			for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
+				float rms = sqrtf(ts->sum_squares[i] / 4000);
+				printf("Ch%d: %ld\n", i, (int32_t)(rms * 10000));
+			}
 		}
 	}
 
