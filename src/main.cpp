@@ -39,13 +39,26 @@ auto const ADC_CH_TEMPSENSOR = 16;
 #endif
 
 auto const ADC_DMA_LOOPS = 16;
-auto const ADC_CHANNELS_FILTERED = 5; // FIXME - only filter interesting channels, not all channels
+auto const ADC_CHANNELS_FILTERED = 3; // FIXME - only filter interesting channels, not all channels
 
 enum task_kadc_notifications {
 	dma_half,
 	dma_full,
 	dma_error
 };
+
+enum ADC_SAMPLING_CYCLES {
+	ADC_SAMPLING_2_5,
+	ADC_SAMPLING_6_5,
+	ADC_SAMPLING_12_5,
+	ADC_SAMPLING_24_5,
+	ADC_SAMPLING_47_5,
+	ADC_SAMPLING_92_5,
+	ADC_SAMPLING_247_5,
+	ADC_SAMPLING_640_5,
+};
+
+#define SAVE_TO_SECOND_BUFFER
 
 
 #if defined(RUNNING_AT_32MHZ)
@@ -81,7 +94,7 @@ void krcc_init32(void) {
 }
 #endif
 
-static volatile uint16_t adc_buf[5*ADC_DMA_LOOPS];
+static volatile uint16_t adc_buf[ADC_CHANNELS_FILTERED*ADC_DMA_LOOPS];
 static volatile uint16_t kdata[1024];
 static volatile int kindex = 0;
 static volatile int kinteresting = 0;
@@ -89,18 +102,16 @@ static volatile int kirq_count = 0;
 
 static TaskHandle_t th_kadc;
 
-// >>> freq = 5000
+// >>> freq = 20000
 // >>> b,a = scipy.signal.iirfilter(1, 20/freq, btype="highpass")
 // >>> filter_model.dump_arm_cmsis(b,a)
 float32_t filter_coeffs[5] = {
-                0.99375596495365714489f,
-               -0.99375596495365714489f,
-                0.00000000000000000000f,
-                0.98751192990731440080f,
-               -0.00000000000000000000f,
-
-        };
-
+        0.99843166591671894672f,
+        -0.99843166591671894672f,
+        0.00000000000000000000f,
+        0.99686333183343800446f,
+        -0.00000000000000000000f,
+};
 
 class KAdcFilter {
 private:
@@ -153,7 +164,7 @@ void adc_set_sampling(int sampling) {
 	ADC1.SMPR2 = reg;  // extra bits? yolo!
 }
 
-static void setup_adc_dma(void) {
+static void adc_setup_with_dma(void) {
 	uint32_t before = DWT->CYCCNT;
 	// setup DMA first...
 	RCC.enable(rcc::DMA1);
@@ -165,7 +176,7 @@ static void setup_adc_dma(void) {
 	// F3 channel 1 is simply assigned to ADC
 #endif
 
-	DMA1->C[0].NDTR = 5 * ADC_DMA_LOOPS;
+	DMA1->C[0].NDTR = ADC_CHANNELS_FILTERED * ADC_DMA_LOOPS;
 	DMA1->C[0].MAR = (uint32_t)&adc_buf;
 	DMA1->C[0].PAR = (uint32_t)&(ADC1.DR);
 	DMA1->C[0].CR = 0
@@ -228,34 +239,38 @@ static void setup_adc_dma(void) {
 	ADC_COMMON1.CCR |= (1<<23) | (1<<22);
 
 	// FIXME - recalculate based on final ADC clocks:
-	// at 32Mhz, 4us = 128, 5us = 160, and 12 = 384
-	adc_set_sampling(4); //4 == 47.5 clocks on all for starters.
-	adc_set_sampling(ADC_CH_VREFINT, 0b110); // that's 247, but 92 is too low
-	adc_set_sampling(ADC_CH_TEMPSENSOR, 0b110); // that's 247, but 92 is too low
+	// at 32Mhz, 4us = 128, 5us = 160
+	adc_set_sampling(ADC_SAMPLING_47_5); //4 == 47.5 clocks on all for starters. // 1.5usecs
+	adc_set_sampling(ADC_CH_VREFINT, ADC_SAMPLING_247_5);
+	adc_set_sampling(ADC_CH_TEMPSENSOR, ADC_SAMPLING_247_5); // 7.7usecs (still glitchy though :(
 
 	// I want ext11, which is tim2 trgo
-	ADC1.CFGR = (1<<31)  // LEave JQDIS
+	ADC1.CFGR = (1<<31)  // Leave JQDIS
 		| (1 << 10) // EXTEN rising edge
 		| (11<<6) // EXTI11 for tim2 trgo
 		| (3) // DMA circular + DMA enable
 		;
 
-	// 8 times oversampling, all on each trigger. (ie, we don't need to change trigger rate)
-	// this gives me 15 bit signal output...
-	ADC1.CFGR2 = (2<<2) | (1<<0); // OVSR = 2 | ROVSE
-	//ADC1.CFGR2 |= (1<<5); // OVSS = 1
+	// Oversampling, only on the regular channels.
+	auto ovsr = 1;
+	auto ovss = 0;
+	ADC1.CFGR2 = (1<<10) | (ovsr<<2) | (1<<0); // ROVSM | OVSR | ROVSE
+	ADC1.CFGR2 |= (ovss<<5);
 
 	// Set ADC to start when it starts getting triggers
 	ADC1.CR |= (1<<2);
 
 	// Sequences are silly, but so be it...
-	ADC1.SQR1 = 5-1;  // 5 conversions first.
+	ADC1.SQR1 = 3-1;  // 3 conversions first.
 
 	ADC1.SQR1 |= (1<<(6*1));
 	ADC1.SQR1 |= (2<<(6*2));
 	ADC1.SQR1 |= (6<<(6*3));  // external 1,2,6
-	ADC1.SQR1 |= (ADC_CH_TEMPSENSOR<<(6*4));
-	ADC1.SQR2 = (ADC_CH_VREFINT << (6*0));
+
+	// Injected afterwards
+	ADC1.JSQR = 2-1;  // sequence of two injected
+	ADC1.JSQR |= (ADC_CH_TEMPSENSOR<<8);
+	ADC1.JSQR |= (ADC_CH_VREFINT<<14);
 }
 
 // TODO - calibrate based on vref int, we know from experience this improves things
@@ -278,7 +293,12 @@ void adc_process_samples(adc_task_state_t* ts, auto i){
 		if (kinteresting >= 0 && kinteresting == k) {
 			ITM->stim_blocking(1, raw);
 			ITM->stim_blocking(4, out);
-
+#if defined(SAVE_TO_SECOND_BUFFER)
+			kdata[kindex++] = raw;
+			if (kindex >= 1024) {
+				kindex = 0;
+			}
+#endif
 		}
 	}
 }
@@ -289,6 +309,7 @@ static void prvTask_kadc(void *pvParameters)
 
 	// setup adc filters
 	for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
+		// DC Cut for current channels
 		ts->filter[i].init(filter_coeffs, 1);
 		ts->sum_squares[i] = 0.0f;
 	}
@@ -297,7 +318,7 @@ static void prvTask_kadc(void *pvParameters)
 
 
 	RCC.enable(rcc::TIM2);
-	const auto freq = 5000;
+	const auto freq = 20000;
 
 #if defined(STM32WB)
 	const auto tim_clk = 64000000;
@@ -309,7 +330,7 @@ static void prvTask_kadc(void *pvParameters)
 	TIM2->CCER = 1 << 0;
 
 #if defined(STM32WB) || defined (STM32F3)
-	setup_adc_dma();
+	adc_setup_with_dma();
 #else
 #error "NO ADC DMA SUPPORT YET"
 #endif
@@ -341,11 +362,15 @@ static void prvTask_kadc(void *pvParameters)
 			stats_dma_err++;
 			printf("DMA Error: %d!\n", stats_dma_err);
 		}
-		if (index > 4000) {
+		auto my_n = ADC_DMA_LOOPS * 200;
+		if (index == my_n) {
 			index = 0;
 			for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
-				float rms = sqrtf(ts->sum_squares[i] / 4000);
-				printf("Ch%d: %ld\n", i, (int32_t)(rms * 10000));
+				float rms = sqrtf(ts->sum_squares[i] / my_n);
+				ts->sum_squares[i] = 0.0f;
+				if (kinteresting >= 0 && kinteresting == i) {
+					printf("Ch%d: %ld\n", i, (int32_t)(rms * 10000));
+				}
 			}
 		}
 	}
@@ -393,18 +418,6 @@ void interrupt::handler<interrupt::irq::DMA1_CH1>() {
 		DMA1->IFCR = dma_flag_tcif(0);
 		xTaskNotifyFromISR(th_kadc, (1<<dma_full), eSetBits, &xHigherPriorityTaskWoken);
 		// Allow turning off this processing at runtime.
-#if defined(SAVE_TO_SECOND_BUFFER)
-		if (kinteresting >= 0) {
-			for (auto i = 0; i < ADC_DMA_LOOPS; i++) {
-				uint16_t samp = adc_buf[(i * 5) + kinteresting];
-				kdata[kindex++] = samp;
-				ITM->stim_blocking(1, samp);
-				if (kindex >= 1024) {
-					kindex = 0;
-				}
-			}
-		}
-#endif
 	}
 	if (DMA1->ISR & dma_flag_teif(0)) {
 		// Errors...
@@ -435,11 +448,60 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	while (1) {
 		i++;
 		vTaskDelay(pdMS_TO_TICKS(500));
-	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
-		led_g.toggle();
+//	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
+//		led_g.toggle();
 		ITM->stim_blocking(3, (uint16_t)kirq_count);
 		kirq_count = 0;
-		printf("testing: %d\n", i);
+//		printf("testing: %d\n", i);
+	}
+}
+
+static void prvTaskTemperature(void *pvParameters)
+{
+	(void)pvParameters;
+	KAdcFilter filter_vref;
+	KAdcFilter filter_temp;
+
+//	>>> freq = 4
+//	>>> b,a = signal.iirfilter(1, 2/freq/2, btype="lowpass")
+//	>>> filter_model.dump_arm_cmsis(b,a)
+	float32_t filter_coeffs[5] = {
+		0.29289321881345248277f,
+		0.29289321881345248277f,
+		0.00000000000000000000f,
+		0.41421356237309508996f,
+		-0.00000000000000000000f,
+	};
+	filter_vref.init(filter_coeffs, 1);
+	filter_temp.init(filter_coeffs, 1);
+
+	// Precalculate.
+	float factor = (STM32::Calibration::TS_CAL2_TEMP - STM32::Calibration::TS_CAL1_TEMP) * 1.0f /
+		(STM32::Calibration::TS_CAL2 - STM32::Calibration::TS_CAL1) * 1.0f;
+
+	TickType_t xLastWakeTime = xTaskGetTickCount();
+	while (1) {
+		xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
+		// sw trigger injected
+		ADC1.CR |= (1<<3);
+		// It won't be ready immediately, but it will be ok after the
+		// first time, we'll use the last ones...
+		uint16_t tempsens_raw = ADC1.JDR1;
+		float tempsens_rawf = tempsens_raw;
+		uint16_t vrefint_raw = ADC1.JDR2;
+		float vrefint_rawf = vrefint_raw;
+		float temp_filter = filter_temp.feed(tempsens_rawf);
+		float vref_filter = filter_vref.feed(vrefint_rawf);
+
+		const float vdd = 3.3f;  // could use vrefint to adjust this... but...
+		float corrected_tdata = temp_filter * vdd / STM32::Calibration::TS_CAL_VOLTAGE;
+		float temp = factor * (corrected_tdata - STM32::Calibration::TS_CAL1) + 30.0f;
+		int32_t tempi = temp * 1000;
+//		printf("temp: raw: %u filtered: %ld, vref: %ld\n", tempsens_raw, tempi, (int32_t)(vref_filter*1000));
+		ITM->stim_blocking(6, tempsens_raw);
+		ITM->stim_blocking(7, vrefint_raw);
+		ITM->stim_blocking(8, temp);
+		
 	}
 }
 
@@ -474,6 +536,7 @@ int main() {
 	NVIC.set_priority(interrupt::irq::DMA1_CH1, 6<<configPRIO_BITS);
 
 	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, &adc_task_state, tskIDLE_PRIORITY + 1, &th_kadc);
+	xTaskCreate(prvTaskTemperature, "ktemp", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	vTaskStartScheduler();
 
