@@ -7,3 +7,6 @@
 [submodule "cmsis"]
 	path = extern/cmsis
 	url = https://github.com/ARM-software/CMSIS_5.git
+[submodule "extern/stcube"]
+	path = extern/stcube
+	url = https://github.com/STMicroelectronics/STM32CubeWB.git
