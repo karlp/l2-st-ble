@@ -435,7 +435,7 @@ static void prvTimerBlue(TimerHandle_t xTimer)
 	/* Timers can only work on globals, boo,
 	 * no, (ab)using pvTimerGetTimerID doesn't sound worthwhile */
         (void) xTimer;
-        led_b.toggle();
+//        led_b.toggle();
 }
 
 
