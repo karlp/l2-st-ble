@@ -18,25 +18,11 @@
 #include "timers.h"
 #include "arm_math.h"
 
-#if defined (STM32WB)
 auto led_r = GPIOB[1];
 auto led_g = GPIOB[0];
 auto led_b = GPIOB[5];
 auto const ADC_CH_VREFINT = 0;
 auto const ADC_CH_TEMPSENSOR = 17;
-#elif defined(STM32F4)
-// Nucleo 144 boards at least...
-auto led_r = GPIOB[14];
-auto led_g = GPIOB[0];
-auto led_b = GPIOB[7];
-#elif defined(STM32F3)
-// f3 disco
-auto led_r = GPIOE[9];
-auto led_g = GPIOE[15];
-auto led_b = GPIOE[12];
-auto const ADC_CH_VREFINT = 18;
-auto const ADC_CH_TEMPSENSOR = 16;
-#endif
 
 // 500 samples per channel, at sample rate is 100ms chunks
 // Idea is that ram usage is better than running more often.
@@ -170,13 +156,9 @@ static void adc_setup_with_dma(void) {
 	uint32_t before = DWT->CYCCNT;
 	// setup DMA first...
 	RCC.enable(rcc::DMA1);
-#if defined(STM32WB)
 	RCC.enable(rcc::DMAMUX1);
 	// Use DMA mux channel 0 / DMA Channel 1for ADC
 	DMAMUX1->CCR[0] = 5;
-#else
-	// F3 channel 1 is simply assigned to ADC
-#endif
 
 	DMA1->C[0].NDTR = ADC_CHANNELS_FILTERED * ADC_DMA_LOOPS;
 	DMA1->C[0].MAR = (uint32_t)&adc_buf;
@@ -192,21 +174,13 @@ static void adc_setup_with_dma(void) {
 	interrupt_ctl.enable(interrupt::irq::DMA1_CH1);
 
 	// Turn on the ADC then we'll do other things while it's waking up.
-#if defined(STM32WB)
 	RCC.enable(rcc::ADC1);
 	// Make sure we give it a clock!
 	RCC->CCIPR |= (3<<28); // Use sysclk for now. We may want to run it slower later.
 	// and prescale to 32MHZ from 64.
 	ADC_COMMON1.CCR |= (1<<18);
 	ADC1.CR = (1<<28);  // turn off deep power down (bit 29) and enables vreg
-#else
-	// default laks clocking is... not applicable
-	// sysclk / 2 is 36, so pretty close to WB....
-	RCC->CFGR2 = (0b10001 << 9) | (0b10001 << 4);
-	RCC.enable(rcc::ADC12);
-	ADC1.CR = 0;
-	ADC1.CR = (1<<28);
-#endif
+
 	// waiting for adc vreg is max 20 usecs, FIXME: get a shorter loop for usecs..
 	// (20usecs is 640 cycles at 32MHz, fyi... so we're always going to be waiting...)
 	ITM->STIM[2].u16 = DWT->CYCCNT - before;
@@ -322,20 +296,12 @@ static void prvTask_kadc(void *pvParameters)
 	RCC.enable(rcc::TIM2);
 	const auto freq = 5000;
 
-#if defined(STM32WB)
 	const auto tim_clk = 64000000;
-#elif defined (STM32F3)
-	const auto tim_clk = 72000000;
-#endif
 	TIM2->ARR = (tim_clk / freq) - 1;
 	TIM2->CR2 = (2<<4); // Master mode update event, will be used by ADC eventually
 	TIM2->CCER = 1 << 0;
 
-#if defined(STM32WB) || defined (STM32F3)
 	adc_setup_with_dma();
-#else
-#error "NO ADC DMA SUPPORT YET"
-#endif
 
 	// Finally, start the timer that is going to do the counting....
 	TIM2->CR1 = 1 << 0; // Enable;
