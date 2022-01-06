@@ -70,17 +70,6 @@ struct ts_ble_t {
 struct ts_ble_t task_state_ble;
 
 
-
-static TimerHandle_t xBlueTimer;
-static void prvTimerBlue(TimerHandle_t xTimer)
-{
-	/* Timers can only work on globals, boo,
-	 * no, (ab)using pvTimerGetTimerID doesn't sound worthwhile */
-        (void) xTimer;
-//        led_b.toggle();
-}
-
-
 static void prvTaskBlinkGreen(void *pvParameters)
 {
 	(void)pvParameters;
@@ -91,7 +80,7 @@ static void prvTaskBlinkGreen(void *pvParameters)
 		i++;
 		vTaskDelay(pdMS_TO_TICKS(500));
 //	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
-//		led_g.toggle();
+		led_g.toggle();
 //		printf("testing: %d\n", i);
 	}
 }
@@ -121,18 +110,6 @@ int main() {
 	RCC.enable(rcc::GPIOE);
 
 	xTaskCreate(prvTaskBlinkGreen, "green.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
-
-	led_b.set_mode(Pin::Output);
-	xBlueTimer = xTimerCreate("blue.blink", 200 * portTICK_PERIOD_MS, true, 0, prvTimerBlue);
-	if (xBlueTimer) {
-		if (xTimerStart(xBlueTimer, 0) != pdTRUE) {
-			/* whee */
-		} else {
-			// boooo
-		}
-	} else {
-		// boooo!!!!! fixme trace?
-	}
 
 	// Required to use FreeRTOS ISR methods!
 	NVIC.set_priority(interrupt::irq::DMA1_CH1, 6<<configPRIO_BITS);
