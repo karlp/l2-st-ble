@@ -19,6 +19,7 @@
 #include "arm_math.h"
 
 #include "analog.h"
+#include "t_ble.h"
 
 auto led_r = GPIOB[1];
 auto led_g = GPIOB[0];
@@ -60,15 +61,6 @@ void krcc_init32(void) {
 }
 #endif
 
-static TaskHandle_t th_ble;
-
-
-// FIXME - place holder for bluetooth task state object...
-struct ts_ble_t {
-	
-};
-struct ts_ble_t task_state_ble;
-
 
 static void prvTaskBlinkGreen(void *pvParameters)
 {
@@ -82,17 +74,6 @@ static void prvTaskBlinkGreen(void *pvParameters)
 //	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
 		led_g.toggle();
 //		printf("testing: %d\n", i);
-	}
-}
-
-
-static void prvTask_ble(void *pvParameters)
-{
-	struct ts_ble_t *ts = (struct ts_ble_t*)pvParameters;
-	(void)ts; // FIXME - remove when you start using it!
-	TickType_t xLastWakeTime = xTaskGetTickCount();
-	while (1) {
-		xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
 	}
 }
 
@@ -114,7 +95,7 @@ int main() {
 	// Required to use FreeRTOS ISR methods!
 	NVIC.set_priority(interrupt::irq::DMA1_CH1, 6<<configPRIO_BITS);
 
-	xTaskCreate(prvTask_ble, "ble", configMINIMAL_STACK_SIZE*3, &task_state_ble, tskIDLE_PRIORITY + 1, &th_ble);
+	xTaskCreate(task_ble, "ble", configMINIMAL_STACK_SIZE*3, &task_state_ble, tskIDLE_PRIORITY + 1, &th_ble);
 	xTaskCreate(task_kadc, "kadc", configMINIMAL_STACK_SIZE*3, &task_state_adc, tskIDLE_PRIORITY + 1, &th_kadc);
 	xTaskCreate(task_temperature, "ktemp", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
 
