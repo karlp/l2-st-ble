@@ -89,6 +89,7 @@ static volatile int kinteresting = 0;
 static volatile int kirq_count = 0;
 
 static TaskHandle_t th_kadc;
+static TaskHandle_t th_ble;
 
 // >>> freq = 5000
 // >>> b,a = scipy.signal.iirfilter(1, 20/freq, btype="highpass")
@@ -123,14 +124,20 @@ public:
 	}
 };
 
+// FIXME - place holder for bluetooth task state object...
+struct ts_ble_t {
+	
+};
+struct ts_ble_t task_state_ble;
 
-struct adc_task_state_t {
+
+struct ts_adc_t {
 	KAdcFilter filter[ADC_CHANNELS_FILTERED];
 
 	float sum_squares[ADC_CHANNELS_FILTERED];
 };
 
-struct adc_task_state_t adc_task_state;
+struct ts_adc_t task_state_adc;
 
 void adc_set_sampling(unsigned channel, int sampling) {
 	if (channel < 10) {
@@ -258,7 +265,7 @@ static void adc_setup_with_dma(void) {
 //}
 
 
-void adc_process_samples(adc_task_state_t* ts, auto i){
+void adc_process_samples(ts_adc_t* ts, auto i){
 	for (int k = 0; k < ADC_CHANNELS_FILTERED; k++) {
 		float f;
 		uint16_t raw = adc_buf[(i * ADC_CHANNELS_FILTERED) + k];
@@ -281,7 +288,7 @@ void adc_process_samples(adc_task_state_t* ts, auto i){
 
 static void prvTask_kadc(void *pvParameters)
 {
-	struct adc_task_state_t *ts = (struct adc_task_state_t*)pvParameters;
+	struct ts_adc_t *ts = (struct ts_adc_t*)pvParameters;
 
 	// setup adc filters
 	for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
@@ -473,6 +480,17 @@ static void prvTaskTemperature(void *pvParameters)
 }
 
 
+static void prvTask_ble(void *pvParameters)
+{
+	struct ts_ble_t *ts = (struct ts_ble_t*)pvParameters;
+	(void)ts; // FIXME - remove when you start using it!
+	TickType_t xLastWakeTime = xTaskGetTickCount();
+	while (1) {
+		xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
+	}
+}
+
+
 int main() {
 #if defined(RUNNING_AT_32MHZ)
 	krcc_init32();
@@ -502,7 +520,8 @@ int main() {
 	// Required to use FreeRTOS ISR methods!
 	NVIC.set_priority(interrupt::irq::DMA1_CH1, 6<<configPRIO_BITS);
 
-	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, &adc_task_state, tskIDLE_PRIORITY + 1, &th_kadc);
+	xTaskCreate(prvTask_ble, "ble", configMINIMAL_STACK_SIZE*3, &task_state_ble, tskIDLE_PRIORITY + 1, &th_ble);
+	xTaskCreate(prvTask_kadc, "kadc", configMINIMAL_STACK_SIZE*3, &task_state_adc, tskIDLE_PRIORITY + 1, &th_kadc);
 	xTaskCreate(prvTaskTemperature, "ktemp", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	vTaskStartScheduler();
