@@ -38,8 +38,10 @@ auto const ADC_CH_VREFINT = 18;
 auto const ADC_CH_TEMPSENSOR = 16;
 #endif
 
-auto const ADC_DMA_LOOPS = 16;
-auto const ADC_CHANNELS_FILTERED = 3; // FIXME - only filter interesting channels, not all channels
+// 500 samples per channel, at sample rate is 100ms chunks
+// Idea is that ram usage is better than running more often.
+auto const ADC_DMA_LOOPS = 500;
+auto const ADC_CHANNELS_FILTERED = 3;
 
 enum task_kadc_notifications {
 	dma_half,
@@ -102,15 +104,15 @@ static volatile int kirq_count = 0;
 
 static TaskHandle_t th_kadc;
 
-// >>> freq = 20000
+// >>> freq = 5000
 // >>> b,a = scipy.signal.iirfilter(1, 20/freq, btype="highpass")
 // >>> filter_model.dump_arm_cmsis(b,a)
 float32_t filter_coeffs[5] = {
-        0.99843166591671894672f,
-        -0.99843166591671894672f,
-        0.00000000000000000000f,
-        0.99686333183343800446f,
-        -0.00000000000000000000f,
+	0.99375596495365714489,
+       -0.99375596495365714489,
+	0.00000000000000000000,
+	0.98751192990731440080,
+       -0.00000000000000000000,
 };
 
 class KAdcFilter {
@@ -251,8 +253,8 @@ static void adc_setup_with_dma(void) {
 		| (3) // DMA circular + DMA enable
 		;
 
-	// Oversampling, only on the regular channels.
-	auto ovsr = 1;
+	// Oversampling configuration, for the regular channels.
+	auto ovsr = 0;
 	auto ovss = 0;
 	ADC1.CFGR2 = (1<<10) | (ovsr<<2) | (1<<0); // ROVSM | OVSR | ROVSE
 	ADC1.CFGR2 |= (ovss<<5);
@@ -318,7 +320,7 @@ static void prvTask_kadc(void *pvParameters)
 
 
 	RCC.enable(rcc::TIM2);
-	const auto freq = 20000;
+	const auto freq = 5000;
 
 #if defined(STM32WB)
 	const auto tim_clk = 64000000;
@@ -343,8 +345,6 @@ static void prvTask_kadc(void *pvParameters)
 	int index = 0;
 	while (1) {
 		xTaskNotifyWait(0, UINT32_MAX, &flags, portMAX_DELAY);
-		// BE CAREFUL HERE TO SKIP THE NON-FILTERED CHANNELS! (vref and tempsens)
-		// (eventually, for now we're just going to filter them all...
 		if (flags & (1<<dma_half)) {
 			for (auto i = 0; i < ADC_DMA_LOOPS / 2; i++) {
 				adc_process_samples(ts, i);
@@ -362,13 +362,14 @@ static void prvTask_kadc(void *pvParameters)
 			stats_dma_err++;
 			printf("DMA Error: %d!\n", stats_dma_err);
 		}
-		auto my_n = ADC_DMA_LOOPS * 200;
+		auto my_n = ADC_DMA_LOOPS * 2; // 100ms per entire buffer.
 		if (index == my_n) {
 			index = 0;
 			for (auto i = 0; i < ADC_CHANNELS_FILTERED; i++) {
 				float rms = sqrtf(ts->sum_squares[i] / my_n);
 				ts->sum_squares[i] = 0.0f;
 				if (kinteresting >= 0 && kinteresting == i) {
+					ITM->stim_blocking(9, rms);
 					printf("Ch%d: %ld\n", i, (int32_t)(rms * 10000));
 				}
 			}
