@@ -13,6 +13,8 @@ This project does "nothing" other than setup a framework of a few tools.
 * CMSIS-DSP.
   Again, the utility here is largely showing how to build it in SCons.
 
-It is/was largely an exercise in how setup new peripherals in laks, and use them in
-a from scratch project.  It does timer triggered multi channel ADC sampling,
-DMA transferred to a buffer, with a FreeRTOS task using CMSIS-DSP to "filter" the data.
+## What do you mean, "nothing"
+It is/was largely an exercise in how to setup new peripherals in laks, and use them in
+a "from scratch" project.  It does timer triggered multi channel ADC sampling, with 
+software injected adc channels, DMA transferred to a buffer, with a FreeRTOS task using
+CMSIS-DSP to "filter" the data.
