@@ -9,6 +9,9 @@ env = SConscript('extern/laks/build/env.py')
 env.SelectMCU('stm32wb55rg')
 #env.SelectMCU('stm32f303vc')
 
+# Gross hack to make cmsis device includes work.  TODO - optionally add in selectMCU?
+env.Append(CPPDEFINES = ['STM32WB55xx'])
+
 env.SetOption("num_jobs", 8) # TODO - get this from the system
 
 env.Append(
@@ -90,6 +93,67 @@ if not env.GetOption('clean'):
 	env.StaticLibrary("${CMSIS}/cmsisdsp", sources_dsp, CPPPATH=["${CMSIS}/Core/Include", "${CMSIS}/DSP/Include", "${CMSIS}/DSP/PrivateInclude"])
 ######
 
+
+#### STM32_WPAN hacking...
+env.SetDefault(WPAN = "#extern/stcube/Middlewares/ST/STM32_WPAN") # SetDefault allows overriding this from env vars
+# ST likes inserting _lots_ of paths and using no prefixes, so be it...
+env.Append(CPPPATH = [
+    "${WPAN}",
+    "${WPAN}/ble",
+    "${WPAN}/ble/core",
+    "${WPAN}/ble/core/auto",
+    "${WPAN}/ble/core/template",
+    "${WPAN}/ble/svc/Inc",
+    "${WPAN}/interface/patterns/ble_thread",
+    "${WPAN}/interface/patterns/ble_thread/tl",
+    "${WPAN}/interface/patterns/ble_thread/shci",
+    "${WPAN}/utilities",
+])
+env.SetDefault(CMSIS_ST = "#extern/stcube/Drivers/CMSIS/Device/ST") # SetDefault allows overriding this from env vars
+env.Append(CPPPATH = [
+    "${CMSIS_ST}/STM32WBxx/Include",
+])
+sources_wpan = [
+    Glob("%s/ble/core/auto/*.c" % env["WPAN"]),
+    Glob("%s/ble/core/template/*.c" % env["WPAN"]),
+    Glob("%s/interface/patterns/ble_thread/shci/*.c" % env["WPAN"]),
+    "%s/interface/patterns/ble_thread/tl/tl_mbox.c" % env["WPAN"],
+    "%s/interface/patterns/ble_thread/tl/hci_tl.c" % env["WPAN"],
+    "%s/interface/patterns/ble_thread/tl/hci_tl_if.c" % env["WPAN"],
+    "%s/interface/patterns/ble_thread/tl/shci_tl.c" % env["WPAN"],
+    "%s/interface/patterns/ble_thread/tl/shci_tl_if.c" % env["WPAN"],
+    "%s/utilities/stm_list.c" % env["WPAN"],
+    "%s/utilities/stm_queue.c" % env["WPAN"],
+    # deliberately avoid dbg_trace, we're not using st hal stuff here!
+    ]
+# You'll want to pick/choose from the following...
+wpan_services = [
+#    "bas.c",
+#    "bls.c",
+#    "bvopus_service_stm.c",
+#    "crs_stm.c",
+    "dis.c",
+#    "eds_stm.c",
+#    "hids.c",
+#    "hrs.c",
+#    "hts.c",
+#    "ias.c",
+#    "lls.c",
+#    "mesh.c",
+#    "motenv_stm.c",
+#    "opus_interface_stm.c",
+#    "otas_stm.c",
+#    "p2p_stm.c",
+    "svc_ctl.c",
+#    "template_stm.c",
+#    "tps.c",
+#    "zdd.c",
+]
+
+sources_wpan += [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in wpan_services]
+
+###########
+
 env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
-sources_app = ['main.cpp', 'analog.cpp', 'syszyp.cpp', 't_ble.cpp']
-env.Firmware('main.elf', [os.path.join('src', x) for x in sources_app] + sources_freertos)
+sources_app = ['main.cpp', 'analog.cpp', 'syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
+env.Firmware('main.elf', [os.path.join('src', x) for x in sources_app] + sources_freertos + sources_wpan)
