@@ -68,7 +68,7 @@ void krcc_init32(void) {
 	while((RCC->CFGR & (3 << 2)) != (3 << 2)); // SWS = PLL
 #else
 	RCC->CFGR |= 0x2;
-	while ((RCC->CCIPR & (2<<2)) != (2<<2)); // SWS = HSE
+	while ((RCC->CFGR & (2<<2)) != (2<<2)); // SWS = HSE
 #endif
 	// Leave prescalers alone...
 	
