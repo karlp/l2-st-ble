@@ -8,6 +8,7 @@ env = SConscript('extern/laks/build/env.py')
 #env.SelectMCU('gd32vf103cb')
 env.SelectMCU('stm32wb55rg')
 #env.SelectMCU('stm32f303vc')
+env.Replace(LINK_SCRIPT = "src/generated-st-ble.ld")
 
 # Gross hack to make cmsis device includes work.  TODO - optionally add in selectMCU?
 env.Append(CPPDEFINES = ['STM32WB55xx'])
@@ -156,4 +157,4 @@ sources_wpan += [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in wpan_serv
 
 env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
 sources_app = ['main.cpp', 'analog.cpp', 'syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
-env.Firmware('main.elf', [os.path.join('src', x) for x in sources_app] + sources_freertos + sources_wpan)
+env.Firmware('main.elf', [os.path.join('src', x) for x in sources_app] + sources_freertos + sources_wpan, custom_ld=True)
