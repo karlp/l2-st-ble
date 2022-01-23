@@ -486,7 +486,9 @@ void hci_notify_asynch_evt(void* pdata)
 {
   (void)pdata;
 //  osThreadFlagsSet( HciUserEvtProcessId, 1 );
-  xTaskNotifyGive(HciUserEvtProcessId);
+//  xTaskNotifyGive(HciUserEvtProcessId);
+  BaseType_t whocares;
+  xTaskNotifyFromISR(HciUserEvtProcessId, 0, eNoAction, &whocares);
   return;
 }
 
