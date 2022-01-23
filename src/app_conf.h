@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 /**
  * TODO: see what you really need here... (turns out, a lot!)
  */
@@ -271,3 +272,15 @@
 #endif
 #endif
 
+
+#define __DBG_TRACE_H  // sneaky hack to avoid upstream hal version
+#define PRINT_MESG_DBG(fmt, ...) \
+    do { printf(fmt, ## __VA_ARGS__); } while (0)
+
+#define CFG_DEBUG_BLE_TRACE 1
+#define CFG_DEBUG_APP_TRACE 1
+#if ( (CFG_DEBUG_BLE_TRACE != 0) || (CFG_DEBUG_APP_TRACE != 0) )
+#define CFG_DEBUG_TRACE             1
+#endif
+#define CFG_DEBUG_TRACE_LIGHT     1
+#define CFG_DEBUG_TRACE_FULL      1

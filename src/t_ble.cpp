@@ -301,11 +301,24 @@ SemaphoreHandle_t SemShciId;
 TaskHandle_t HciUserEvtProcessId;
 TaskHandle_t ShciUserEvtProcessId;
 TaskHandle_t AdvUpdateProcessId;
+TimerHandle_t AdvMgrTimerId;
 
 
 void ble_pre(void) {
 	// ST demos reset IPCC and backup domain here, but.... let's not, and get bitten by that later.	
-	_tune_hse();
+//	_tune_hse();
+
+	// ST does this before even system clock config.
+	RCC.enable(rcc::HSEM);
+	NVIC.enable(interrupt::irq::HSEM);
+	// also, sets priority of pendsv to 15 and hsem to 5...
+	NVIC.set_priority(interrupt::irq::HSEM, 5<<configPRIO_BITS);
+	NVIC.set_priority(interrupt::exception::PendSV, 15<<configPRIO_BITS);
+	
+	// let's just set all the priorities up front here.
+	NVIC.set_priority(interrupt::irq::IPCC_C1_RX, 5<<configPRIO_BITS);
+	NVIC.set_priority(interrupt::irq::IPCC_C1_TX, 5<<configPRIO_BITS);
+
 }
 
 static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
@@ -329,6 +342,7 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
      * It does not hurt if the timer was not running
      */
 // FIXME kkk    HW_TS_Stop(BleApplicationContext.Advertising_mgr_timer_Id);
+  xTimerStop(AdvMgrTimerId, 50*portTICK_PERIOD_MS); // TODO - check return value
 
     APP_DBG_MSG("First index in %d state \n", BleApplicationContext.Device_Connection_Status);
 
@@ -391,6 +405,7 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
         APP_DBG_MSG("Successfully Start Fast Advertising \n" );
         /* Start Timer to STOP ADV - TIMEOUT */
 // FIXME kkk        HW_TS_Start(BleApplicationContext.Advertising_mgr_timer_Id, INITIAL_ADV_TIMEOUT);
+	xTimerStart(AdvMgrTimerId, portMAX_DELAY);  // TODO - check return type, it shouldn't really ever fail though...
       }
       else
       {
@@ -480,7 +495,10 @@ void shci_notify_asynch_evt(void* pdata)
 {
   (void)pdata;
 //  osThreadFlagsSet( ShciUserEvtProcessId, 1 );
-  xTaskNotifyGive(ShciUserEvtProcessId);
+  // Not 100% sure if this is something that can be called from both?!
+//  xTaskNotifyGive(ShciUserEvtProcessId);
+  BaseType_t whocares;
+  xTaskNotifyFromISR(ShciUserEvtProcessId, 0, eNoAction, &whocares);
   return;
 }
 
@@ -645,6 +663,7 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification( void *pckt )
           connection_complete_event = (hci_le_connection_complete_event_rp0 *) meta_evt->data;
           printf("K: Turning off advertising, as we got a connection?! no thanks!\n");
 // FIXME kkk          HW_TS_Stop(BleApplicationContext.Advertising_mgr_timer_Id);
+	  xTimerStop(AdvMgrTimerId, 50*portTICK_PERIOD_MS);  // TODO -check return code
 
           APP_DBG_MSG("HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE for connection handle 0x%x\n", connection_complete_event->Connection_Handle);
           if (BleApplicationContext.Device_Connection_Status == APP_BLE_LP_CONNECTING)
@@ -724,7 +743,7 @@ static void Ble_Tl_Init( void )
   //SemHciId = osSemaphoreNew( 1, 0, NULL ); /*< Create the semaphore and make it busy at initialization */
   SemHciId = xSemaphoreCreateBinary();
   
-  
+  printf("Ble_Tl_Init: making hci\n");
   Hci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*)&BleCmdBuffer;
   Hci_Tl_Init_Conf.StatusNotCallBack = BLE_StatusNot;
   hci_init(BLE_UserEvtRx, (void*) &Hci_Tl_Init_Conf);
@@ -915,6 +934,21 @@ static void Adv_Update( void )
   return;
 }
 
+/** K Called on timer! */
+static void Adv_Mgr( TimerHandle_t xTimer )
+{
+	(void)xTimer;
+  /**
+   * The code shall be executed in the background as an aci command may be sent
+   * The background is the only place where the application can make sure a new aci command
+   * is not sent if there is a pending one
+   */
+//  osThreadFlagsSet( AdvUpdateProcessId, 1 );
+	xTaskNotifyGive(AdvUpdateProcessId);
+  return;
+}
+
+
 static void AdvUpdateProcess(void *argument)
 {
   (void)argument;
@@ -1029,6 +1063,8 @@ void APP_BLE_Init( void )
    */
 
 // FIXME - kkk oh shit boi  HW_TS_Create(CFG_TIM_PROC_ID_ISR, &(BleApplicationContext.Advertising_mgr_timer_Id), hw_ts_SingleShot, Adv_Mgr);
+  // all this timer does is task notify the advertising update processs..
+  AdvMgrTimerId = xTimerCreate("ble-adv-mgr", INITIAL_ADV_TIMEOUT, pdFALSE, NULL, &Adv_Mgr);
 
   /**
    * Make device discoverable
@@ -1085,6 +1121,7 @@ static void APPE_SysUserEvtRx( void * pPayload )
 static void ShciUserEvtProcess(void *argument)
 {
   (void)argument;
+  printf("started SHCI\n");
   for(;;)
   {
     /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_1 */
@@ -1093,6 +1130,7 @@ static void ShciUserEvtProcess(void *argument)
 	  // FIXME - 
      // osThreadFlagsWait(1, osFlagsWaitAny, osWaitForever);
 	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
+	printf("shci: event!\n");
      shci_user_evt_proc();
     /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_2 */
 
@@ -1102,6 +1140,7 @@ static void ShciUserEvtProcess(void *argument)
 
 void kble_tl_init(void)
 {
+	printf("kble_tl_init()\n");
 	TL_MM_Config_t tl_mm_config;
 	SHCI_TL_HciInitConf_t SHci_Tl_Init_Conf;
 	/**< Reference table initialization */
@@ -1121,6 +1160,7 @@ void kble_tl_init(void)
 	SHci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*) & SystemCmdBuffer;
 	SHci_Tl_Init_Conf.StatusNotCallBack = APPE_SysStatusNot;
 	shci_init(APPE_SysUserEvtRx, (void*) &SHci_Tl_Init_Conf);
+	printf("done shci_init\n");
 
 	/**< Memory Manager channel initialization */
 	tl_mm_config.p_BleSpareEvtBuffer = BleSpareEvtBuffer;
@@ -1128,8 +1168,10 @@ void kble_tl_init(void)
 	tl_mm_config.p_AsynchEvtPool = EvtPool;
 	tl_mm_config.AsynchEvtPoolSize = POOL_SIZE;
 	TL_MM_Init(&tl_mm_config);
+	printf("done TL_MM_init\n");
 
 	TL_Enable();
+	printf("done TL_Enable\n");
 	
 }
 
@@ -1138,8 +1180,6 @@ void task_ble(void *pvParameters)
 	struct ts_ble_t *ts = (struct ts_ble_t*)pvParameters;
 	(void)ts; // FIXME - remove when you start using it!
 	
-	RCC.enable(rcc::HSEM);
-	NVIC.enable(interrupt::irq::HSEM);
 	
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1) {
@@ -1149,3 +1189,20 @@ void task_ble(void *pvParameters)
 
 
 
+// Shitty ST code for dumping a buffer.
+extern "C" {
+
+void DbgTraceBuffer(const void *pBuffer, uint32_t u32Length, const char *strFormat, ...)
+{
+  va_list vaArgs;
+  uint32_t u32Index;
+  va_start(vaArgs, strFormat);
+  vprintf(strFormat, vaArgs);
+  va_end(vaArgs);
+  for (u32Index = 0; u32Index < u32Length; u32Index ++)
+  {
+    printf(" %02X", ((const uint8_t *) pBuffer)[u32Index]);
+  }
+}
+
+}
