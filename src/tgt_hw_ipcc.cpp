@@ -22,17 +22,6 @@
 #define LL_IPCC_CHANNEL_6 5
 
 
-// let the compiler inline this shit....
-static bool hw_ipcc_tx_pending(uint32_t channel) {
-	bool unmasked = ~(IPCC->C1MR) & ((1<<channel) << 16);
-	return unmasked && (!(IPCC->C1TOC2SR & (1<<channel)));
-}
-
-static bool hw_ipcc_rx_pending(uint32_t channel) {
-	bool unmasked = ~(IPCC->C1MR) & (1<<channel);
-	return unmasked && (IPCC->C2TOC1SR & (1<<channel));
-}
-
 // super rad C style function pointer, which I'm sure will blow up in my face...
 static void (*FreeBufCb)( void );
 
@@ -187,7 +176,7 @@ static void HW_IPCC_TRACES_EvtHandler( void )
 
 template <>
 void interrupt::handler<interrupt::irq::IPCC_C1_RX>() {
-	if (hw_ipcc_rx_pending(HW_IPCC_SYSTEM_EVENT_CHANNEL)) {
+	if (IPCC.rx_pending(HW_IPCC_SYSTEM_EVENT_CHANNEL)) {
 		HW_IPCC_SYS_EvtHandler();
 	}
 	
@@ -238,10 +227,10 @@ void interrupt::handler<interrupt::irq::IPCC_C1_RX>() {
 //  }
 //#endif /* ZIGBEE_WB */
 
-	else if (hw_ipcc_rx_pending(HW_IPCC_BLE_EVENT_CHANNEL)) {
+	else if (IPCC.rx_pending(HW_IPCC_BLE_EVENT_CHANNEL)) {
 		HW_IPCC_BLE_EvtHandler();
 	}
-	else if (hw_ipcc_rx_pending(HW_IPCC_TRACES_CHANNEL)) {
+	else if (IPCC.rx_pending(HW_IPCC_TRACES_CHANNEL)) {
 		HW_IPCC_TRACES_EvtHandler();
 	}
 }
@@ -251,7 +240,7 @@ void interrupt::handler<interrupt::irq::IPCC_C1_RX>() {
 template <>
 void interrupt::handler<interrupt::irq::IPCC_C1_TX>() {
 
-	if (hw_ipcc_tx_pending(HW_IPCC_SYSTEM_CMD_RSP_CHANNEL)) {
+	if (IPCC.tx_pending(HW_IPCC_SYSTEM_CMD_RSP_CHANNEL)) {
 		HW_IPCC_SYS_CmdEvtHandler();
 	}
 //#ifdef MAC_802_15_4_WB
@@ -275,13 +264,13 @@ void interrupt::handler<interrupt::irq::IPCC_C1_TX>() {
 //      HW_IPCC_ZIGBEE_CmdEvtHandler();
 //  }
 //#endif /* ZIGBEE_WB */
-	else if (hw_ipcc_tx_pending(HW_IPCC_SYSTEM_CMD_RSP_CHANNEL)) {
+	else if (IPCC.tx_pending(HW_IPCC_SYSTEM_CMD_RSP_CHANNEL)) {
 		HW_IPCC_SYS_CmdEvtHandler();
 	}
-	else if (hw_ipcc_tx_pending(HW_IPCC_MM_RELEASE_BUFFER_CHANNEL)) {
+	else if (IPCC.tx_pending(HW_IPCC_MM_RELEASE_BUFFER_CHANNEL)) {
 		HW_IPCC_MM_FreeBufHandler();
 	}
-	else if (hw_ipcc_tx_pending(HW_IPCC_HCI_ACL_DATA_CHANNEL)) {
+	else if (IPCC.tx_pending(HW_IPCC_HCI_ACL_DATA_CHANNEL)) {
 		HW_IPCC_BLE_AclDataEvtHandler();
 	}
 	return;
