@@ -160,7 +160,7 @@ objs_wpan = [env_wpan.Object(f) for f in sources_wpan]
 ###########
 
 env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
-sources_app = ['main.cpp', 'analog.cpp', 'syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
+sources_app = ['main.cpp', 'syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
 
 fsources = [env.Object(f) for f in Flatten([  [os.path.join('src', x) for x in sources_app] + sources_freertos + env['LIB_SOURCES']])]
 fw = env.Program("main.elf", fsources + objs_wpan)

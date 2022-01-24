@@ -1,19 +1,12 @@
 #include <cstdio>
 
-#include <adc/adc_f3.h>
-#include <cal/cal.h>
 #include <cortex_m/debug.h>
-#include <dma/dma.h>
 #include <exti/exti.h>
 #include <gpio/gpio.h>
 #include <interrupt/interrupt.h>
 #include <pwr/pwr.h>
 #include <rcc/flash.h>
 #include <rcc/rcc.h>
-#include <timer/timer.h>
-#include <uart/uart.h>
-#include <usb/usb.h>
-#include <usb/descriptor.h>
 #include <wpan/hsem.h>
 #include <wpan/ipcc.h>
 
@@ -22,7 +15,6 @@
 #include "timers.h"
 #include "arm_math.h"
 
-#include "analog.h"
 #include "t_ble.h"
 
 auto led_r = GPIOB[1];
@@ -183,12 +175,7 @@ int main() {
 
 	xTaskCreate(prvTaskBlinkGreen, "green.blink", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 
-	// Required to use FreeRTOS ISR methods!
-	NVIC.set_priority(interrupt::irq::DMA1_CH1, 6<<configPRIO_BITS);
-
 	xTaskCreate(task_ble, "ble", configMINIMAL_STACK_SIZE*3, &task_state_ble, tskIDLE_PRIORITY + 1, &th_ble);
-	xTaskCreate(task_kadc, "kadc", configMINIMAL_STACK_SIZE*3, &task_state_adc, tskIDLE_PRIORITY + 1, &th_kadc);
-	xTaskCreate(task_temperature, "ktemp", configMINIMAL_STACK_SIZE*3, NULL, tskIDLE_PRIORITY + 1, NULL);
 
 	vTaskStartScheduler();
 
