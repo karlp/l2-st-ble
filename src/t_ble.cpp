@@ -989,7 +989,6 @@ void APP_BLE_Init( void )
   /**
    * Register the hci transport layer to handle BLE User Asynchronous Events
    */
-//  HciUserEvtProcessId = osThreadNew(HciUserEvtProcess, NULL, &HciUserEvtProcess_attr);
    xTaskCreate(HciUserEvtProcess, "hci_evt", configMINIMAL_STACK_SIZE*8, NULL, tskIDLE_PRIORITY + 1, &HciUserEvtProcessId);
 
 
