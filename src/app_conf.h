@@ -265,7 +265,7 @@
 // Most of STM32_WPAN uses __WEAK, which is properly supported by
 // cmsis_compiler.h -> cmsis_gcc.h.  However, a few files, eg: svc_ctl.c use
 // __weak, and rely on some HAL defines to get back to the correct attributes.
-// Should be reported to ST as a bug really.
+// https://github.com/STMicroelectronics/STM32CubeWB/issues/14
 #ifndef __weak
 #if defined ( __GNUC__ )
 #define __weak   __attribute__((weak))
