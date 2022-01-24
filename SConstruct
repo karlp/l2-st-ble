@@ -152,9 +152,16 @@ wpan_services = [
 ]
 
 sources_wpan += [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in wpan_services]
+# ST has lots of format errors in their code, and there's not much we can do about it...
+env_wpan = env.Clone()
+env_wpan.Append(CCFLAGS = ["-Wno-format"])
+objs_wpan = [env_wpan.Object(f) for f in sources_wpan]
 
 ###########
 
 env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
 sources_app = ['main.cpp', 'analog.cpp', 'syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
-env.Firmware('main.elf', [os.path.join('src', x) for x in sources_app] + sources_freertos + sources_wpan, custom_ld=True)
+
+fsources = [env.Object(f) for f in Flatten([  [os.path.join('src', x) for x in sources_app] + sources_freertos + env['LIB_SOURCES']])]
+fw = env.Program("main.elf", fsources + objs_wpan)
+env.Depends(fw, env['LINK_SCRIPT'])
