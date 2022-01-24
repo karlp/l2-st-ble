@@ -262,20 +262,23 @@
 
 
 
-// More fucking hacking.... because we're trying to avoid the hal dbg_trace.c file
-// and because we only support gcc/clang...
+// Most of STM32_WPAN uses __WEAK, which is properly supported by
+// cmsis_compiler.h -> cmsis_gcc.h.  However, a few files, eg: svc_ctl.c use
+// __weak, and rely on some HAL defines to get back to the correct attributes.
+// Should be reported to ST as a bug really.
 #ifndef __weak
 #if defined ( __GNUC__ )
 #define __weak   __attribute__((weak))
 #else
-#error "This madness is only supported on gcc/clang?"
+#error "This workaround for ST code has only been implemented for GCC/CLANG"
 #endif
 #endif
 
 
 #define __DBG_TRACE_H  // sneaky hack to avoid upstream hal version
-#define PRINT_MESG_DBG(fmt, ...) \
-    do { printf(fmt, ## __VA_ARGS__); } while (0)
+
+#define PRINT_NO_MESG(...)
+#define PRINT_MESG_DBG(fmt, ...)  do { printf(fmt, ## __VA_ARGS__); } while (0)
 
 #define CFG_DEBUG_BLE_TRACE 1
 #define CFG_DEBUG_APP_TRACE 1

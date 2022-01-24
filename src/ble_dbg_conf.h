@@ -197,10 +197,6 @@
 #endif
 
 
-
-#define PRINT_NO_MESG(...)
-//#define PRINT_MESG_DBG(...)	printf(__VA_ARGS__)
-
 #endif /*__BLE_DBG_CONF_H */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

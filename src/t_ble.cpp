@@ -31,7 +31,6 @@
 
 
 #include "t_ble.h"
-//#include "stm32wb55xx.h"
 
 
 TaskHandle_t th_ble;
@@ -341,7 +340,6 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
      * Stop the timer, it will be restarted for a new shot
      * It does not hurt if the timer was not running
      */
-// FIXME kkk    HW_TS_Stop(BleApplicationContext.Advertising_mgr_timer_Id);
   xTimerStop(AdvMgrTimerId, 50*portTICK_PERIOD_MS); // TODO - check return value
 
     APP_DBG_MSG("First index in %d state \n", BleApplicationContext.Device_Connection_Status);
@@ -404,7 +402,6 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
       {
         APP_DBG_MSG("Successfully Start Fast Advertising \n" );
         /* Start Timer to STOP ADV - TIMEOUT */
-// FIXME kkk        HW_TS_Start(BleApplicationContext.Advertising_mgr_timer_Id, INITIAL_ADV_TIMEOUT);
 	xTimerStart(AdvMgrTimerId, portMAX_DELAY);  // TODO - check return type, it shouldn't really ever fail though...
       }
       else
@@ -437,7 +434,6 @@ const uint8_t* BleGetBdAddress( void )
   uint32_t company_id;
   uint32_t device_id;
 
-//  udn = LL_FLASH_GetUDN();
   udn = STM32::Calibration::UID64_UDN;
   company_id = STM32::Calibration::UID64_PART >> 8;
   device_id = STM32::Calibration::UID64_PART & 0xff;
@@ -485,8 +481,6 @@ const uint8_t* BleGetBdAddress( void )
 void hci_notify_asynch_evt(void* pdata)
 {
   (void)pdata;
-//  osThreadFlagsSet( HciUserEvtProcessId, 1 );
-//  xTaskNotifyGive(HciUserEvtProcessId);
   BaseType_t whocares;
   xTaskNotifyFromISR(HciUserEvtProcessId, 0, eNoAction, &whocares);
   return;
@@ -496,9 +490,6 @@ void hci_notify_asynch_evt(void* pdata)
 void shci_notify_asynch_evt(void* pdata)
 {
   (void)pdata;
-//  osThreadFlagsSet( ShciUserEvtProcessId, 1 );
-  // Not 100% sure if this is something that can be called from both?!
-//  xTaskNotifyGive(ShciUserEvtProcessId);
   BaseType_t whocares;
   xTaskNotifyFromISR(ShciUserEvtProcessId, 0, eNoAction, &whocares);
   return;
@@ -507,22 +498,19 @@ void shci_notify_asynch_evt(void* pdata)
 
 static void APPE_SysStatusNot( SHCI_TL_CmdStatus_t status )
 {
-  switch (status)
-  {
-    case SHCI_TL_CmdBusy:
-      //osMutexAcquire( MtxShciId, osWaitForever );
-	    xSemaphoreTake(MtxShciId, portMAX_DELAY);
-      break;
+	switch (status) {
+	case SHCI_TL_CmdBusy:
+		xSemaphoreTake(MtxShciId, portMAX_DELAY);
+		break;
 
-    case SHCI_TL_CmdAvailable:
-      //osMutexRelease( MtxShciId );
-	    xSemaphoreGive(MtxShciId);
-      break;
+	case SHCI_TL_CmdAvailable:
+		xSemaphoreGive(MtxShciId);
+		break;
 
-    default:
-      break;
-  }
-  return;
+	default:
+		break;
+	}
+	return;
 }
 
 static void BLE_UserEvtRx( void * pPayload )
@@ -549,13 +537,11 @@ static void BLE_StatusNot( HCI_TL_CmdStatus_t status )
   switch (status)
   {
     case HCI_TL_CmdBusy:
-      //osMutexAcquire( MtxHciId, osWaitForever );
       xSemaphoreTake(MtxHciId, portMAX_DELAY);
       break;
 
     case HCI_TL_CmdAvailable:
-//      osMutexRelease( MtxHciId );
-	    xSemaphoreGive(MtxHciId);
+      xSemaphoreGive(MtxHciId);
       break;
 
     default:
@@ -664,7 +650,6 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification( void *pckt )
            */
           connection_complete_event = (hci_le_connection_complete_event_rp0 *) meta_evt->data;
           printf("K: Turning off advertising, as we got a connection?! no thanks!\n");
-// FIXME kkk          HW_TS_Stop(BleApplicationContext.Advertising_mgr_timer_Id);
 	  xTimerStop(AdvMgrTimerId, 50*portTICK_PERIOD_MS);  // TODO -check return code
 
           APP_DBG_MSG("HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE for connection handle 0x%x\n", connection_complete_event->Connection_Handle);
@@ -740,9 +725,7 @@ static void Ble_Tl_Init( void )
 {
   HCI_TL_HciInitConf_t Hci_Tl_Init_Conf;
 
-//  MtxHciId = osMutexNew( NULL );
   MtxHciId = xSemaphoreCreateMutex();
-  //SemHciId = osSemaphoreNew( 1, 0, NULL ); /*< Create the semaphore and make it busy at initialization */
   SemHciId = xSemaphoreCreateBinary();
   
   printf("Ble_Tl_Init: making hci\n");
@@ -759,9 +742,8 @@ static void HciUserEvtProcess(void *argument)
 
   for(;;)
   {
-//    osThreadFlagsWait( 1, osFlagsWaitAny, osWaitForever);
 	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
-    hci_user_evt_proc( );
+	hci_user_evt_proc( );
   }
 }
 
@@ -827,7 +809,6 @@ static void Ble_Hci_Gap_Gatt_Init(void){
    * The RNG may be used to provide a random number on each power on
    */
   srd_bd_addr[1] =  0x0000ED6E;
-//  srd_bd_addr[0] =  LL_FLASH_GetUDN( );
   srd_bd_addr[0] =  STM32::Calibration::UID64_UDN;
   aci_hal_write_config_data( CONFIG_DATA_RANDOM_ADDRESS_OFFSET, CONFIG_DATA_RANDOM_ADDRESS_LEN, (uint8_t*)srd_bd_addr );
 
@@ -945,8 +926,7 @@ static void Adv_Mgr( TimerHandle_t xTimer )
    * The background is the only place where the application can make sure a new aci command
    * is not sent if there is a pending one
    */
-//  osThreadFlagsSet( AdvUpdateProcessId, 1 );
-	xTaskNotifyGive(AdvUpdateProcessId);
+  xTaskNotifyGive(AdvUpdateProcessId);
   return;
 }
 
@@ -957,8 +937,7 @@ static void AdvUpdateProcess(void *argument)
 
   for(;;)
   {
-//    osThreadFlagsWait( 1, osFlagsWaitAny, osWaitForever);
-	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
+    xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
     Adv_Update( );
   }
 }
@@ -1040,8 +1019,7 @@ void APP_BLE_Init( void )
   /**
    * From here, all initialization are BLE application specific
    */
-//  AdvUpdateProcessId = osThreadNew(AdvUpdateProcess, NULL, &AdvUpdateProcess_attr);
-  	xTaskCreate(AdvUpdateProcess, "adv", configMINIMAL_STACK_SIZE*6, NULL, tskIDLE_PRIORITY + 1, &AdvUpdateProcessId);
+  xTaskCreate(AdvUpdateProcess, "adv", configMINIMAL_STACK_SIZE*6, NULL, tskIDLE_PRIORITY + 1, &AdvUpdateProcessId);
 
 
   /**
@@ -1063,9 +1041,6 @@ void APP_BLE_Init( void )
   /**
    * Create timer to handle the connection state machine
    */
-
-// FIXME - kkk oh shit boi  HW_TS_Create(CFG_TIM_PROC_ID_ISR, &(BleApplicationContext.Advertising_mgr_timer_Id), hw_ts_SingleShot, Adv_Mgr);
-  // all this timer does is task notify the advertising update processs..
   AdvMgrTimerId = xTimerCreate("ble-adv-mgr", INITIAL_ADV_TIMEOUT, pdFALSE, NULL, &Adv_Mgr);
 
   /**
