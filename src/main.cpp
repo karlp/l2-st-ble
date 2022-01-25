@@ -76,69 +76,7 @@ void krcc_init32(void) {
 	RCC->SMPSCR = (1<<4) | (2<<0); // HSE+div1.
 	
 	// Set RF wakeup clock to LSE
-	RCC->CSR |= (1<<14);
-	
-	// MX_IPCC_Init()...
-	RCC.enable(rcc::IPCC);
-	NVIC.enable(interrupt::irq::IPCC_C1_RX);
-	NVIC.enable(interrupt::irq::IPCC_C1_TX);
-	// XXX: IPCC reset? yolo! I don't see what state we should bother with this in...
-//	IPCC->C1CR = 0;
-//	IPCC->C1MR = 0x3f << 16 | 0x3f;
-//	IPCC->C1SCR = 0x3f;
-	// Ok, but seriously,
-	IPCC->C1CR |= (1<<16) | (1<<0); // TXFIE | RXOIE
-	
-	// MX_RF_Init() is null
-	// MX_RTC_Init()...
-	// FIXME: XXX fuck it, I'm not sure what we're using this for, it can wait...
-	// demo app seems to be using it for a wakeup timer? I'll have adc dma timer for that...
-	// correct, fuck it off for now, we're going full power to get the stack working,
-	// and we _only_ "need" the RTC to get a lower power wakeup
-	
-	
-	// MX_APPE_Init()... // stop that, MX_APPE_Init isn't in the freertos demos!
-	// CAN this go to top of bluetooth? (appears to still do exti/smps shits..
-//	PWR->CR5 &= ~(7 << 4); // 80mA startup current
-//	// Not sure why we need to do this, but... It talks about limiting rf output power?
-//	int32_t now = PWR->CR5 & 0x7; // reset calibration is at 1.5V
-//	now -= 2; // Attempt to get 1.4V
-//	if (now > 0 && now < 7) {
-//		PWR->CR5 |= now;
-//	} else {
-//		printf("yolo smps setting?!");
-//	}
-	
-	EXTI->IMR2 |= (1 << (36-32)) | (1<<(38-32)); // IPCC and HSEM wakeup EXTIs
-	
-	// XXX: more RTC init here, setting wakeup clocks.
-	
-	// SystemPower_Config()....
-	// set hsi as sysclock after wakeup from stop?
-	// ->  nope, we're never going to stop...
-	// init "util_lpm_..." -> nope...
-	// nope, we're running in full power mode until the stack works!
-//	PWR->C2CR1 &= ~(0x7);
-//	PWR->C2CR1 |= 0x4; // LPMS == Shutdown
-	
-	
-	// HW_TS_Init()....
-	// FIXME - this one _might_ need the RTC finally?
-	
-	///// APPD_Init()
-	// XXX: there's a step here about enabling debugger, which is a power thing... revisit.
-
-	// APPD_SetCPU2GpioConfig() ? lol, no, we're not getting support from ST with this code :)
-	// APPD_bleDtbCfg() ? lol, same, no ST support here bois!
-	/////
-	
-	// UTIL_LPM modes again.  we're definitely not going to be using that code, we want it better tied into freertos..
-	
-	// appe_Tl_Init()...
-	// XXX this is a real good sized one!
-	// go straight to another file for it...
-	kble_tl_init();  // this is the last thing ST does beore starting the OS...
-	
+	RCC->CSR |= (1<<14);	
 }
 #endif
 

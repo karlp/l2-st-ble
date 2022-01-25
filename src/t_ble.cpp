@@ -11,10 +11,12 @@
 #include <cal/cal.h>
 #include <cortex_m/debug.h>
 #include <dma/dma.h>
+#include <exti/exti.h>
 #include <gpio/gpio.h>
 #include <interrupt/interrupt.h>
 #include <rcc/rcc.h>
 #include <timer/timer.h>
+#include <wpan/ipcc.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -1009,6 +1011,8 @@ void APP_BLE_Init( void )
    * Initialization of the BLE Services
    */
   SVCCTL_Init();
+  
+  //// THEORY - everything below here is "private app" and above here is "required init...?
 
   /**
    * Initialization of the BLE App Context
@@ -1078,6 +1082,7 @@ void APP_BLE_Init( void )
  * ( eg ((tSHCI_UserEvtRxParam*)pPayload)->status shall be set to SHCI_TL_UserEventFlow_Disable )
  * When the status is not filled, the buffer is released by default
  */
+// KARL - called from schi-evt task
 static void APPE_SysUserEvtRx( void * pPayload )
 {
   (void)pPayload;
@@ -1098,40 +1103,15 @@ static void ShciUserEvtProcess(void *argument)
 {
   (void)argument;
   printf("started SHCI\n");
-  for(;;)
-  {
-    /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_1 */
-
-    /* USER CODE END SHCI_USER_EVT_PROCESS_1 */
-	  // FIXME - 
-     // osThreadFlagsWait(1, osFlagsWaitAny, osWaitForever);
-	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
-	printf("shci: event!\n");
-     shci_user_evt_proc();
-    /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_2 */
-
-    /* USER CODE END SHCI_USER_EVT_PROCESS_2 */
-    }
-}
-
-void kble_tl_init(void)
-{
-	printf("kble_tl_init()\n");
+  
 	TL_MM_Config_t tl_mm_config;
 	SHCI_TL_HciInitConf_t SHci_Tl_Init_Conf;
 	/**< Reference table initialization */
 	TL_Init();
 
-	// FIXME karl!
-//	MtxShciId = osMutexNew(NULL);
 	MtxShciId = xSemaphoreCreateMutex();
-//	SemShciId = osSemaphoreNew(1, 0, NULL); /*< Create the semaphore and make it busy at initialization */
 	SemShciId = xSemaphoreCreateBinary();
 //
-//	/** FreeRTOS system task creation */
-//	ShciUserEvtProcessId = osThreadNew(ShciUserEvtProcess, NULL, &ShciUserEvtProcess_attr);
-	xTaskCreate(ShciUserEvtProcess, "shci_evt", configMINIMAL_STACK_SIZE*7, NULL, tskIDLE_PRIORITY + 1, &ShciUserEvtProcessId);
-
 	/**< System channel initialization */
 	SHci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*) & SystemCmdBuffer;
 	SHci_Tl_Init_Conf.StatusNotCallBack = APPE_SysStatusNot;
@@ -1149,6 +1129,82 @@ void kble_tl_init(void)
 	TL_Enable();
 	printf("done TL_Enable\n");
 	
+  
+  for(;;)
+  {
+    /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_1 */
+
+    /* USER CODE END SHCI_USER_EVT_PROCESS_1 */
+	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
+	printf("shci: event!\n");
+     shci_user_evt_proc();
+    /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_2 */
+
+    /* USER CODE END SHCI_USER_EVT_PROCESS_2 */
+    }
+}
+
+
+static void task_ble_setup(void) {
+	// MX_IPCC_Init()...
+	RCC.enable(rcc::IPCC);
+	NVIC.enable(interrupt::irq::IPCC_C1_RX);
+	NVIC.enable(interrupt::irq::IPCC_C1_TX);
+	// XXX: IPCC reset? yolo! I don't see what state we should bother with this in...
+//	IPCC->C1CR = 0;
+//	IPCC->C1MR = 0x3f << 16 | 0x3f;
+//	IPCC->C1SCR = 0x3f;
+	// Ok, but seriously,
+	IPCC->C1CR |= (1<<16) | (1<<0); // TXFIE | RXOIE
+	
+	// MX_RF_Init() is null
+	// MX_RTC_Init()...
+	// FIXME: XXX fuck it, I'm not sure what we're using this for, it can wait...
+	// demo app seems to be using it for a wakeup timer? I'll have adc dma timer for that...
+	// correct, fuck it off for now, we're going full power to get the stack working,
+	// and we _only_ "need" the RTC to get a lower power wakeup
+	
+	
+	// MX_APPE_Init()... // stop that, MX_APPE_Init isn't in the freertos demos!
+	// CAN this go to top of bluetooth? (appears to still do exti/smps shits..
+//	PWR->CR5 &= ~(7 << 4); // 80mA startup current
+//	// Not sure why we need to do this, but... It talks about limiting rf output power?
+//	int32_t now = PWR->CR5 & 0x7; // reset calibration is at 1.5V
+//	now -= 2; // Attempt to get 1.4V
+//	if (now > 0 && now < 7) {
+//		PWR->CR5 |= now;
+//	} else {
+//		printf("yolo smps setting?!");
+//	}
+	
+	EXTI->IMR2 |= (1 << (36-32)) | (1<<(38-32)); // IPCC and HSEM wakeup EXTIs
+	
+	// XXX: more RTC init here, setting wakeup clocks.
+	
+	// SystemPower_Config()....
+	// set hsi as sysclock after wakeup from stop?
+	// ->  nope, we're never going to stop...
+	// init "util_lpm_..." -> nope...
+	// nope, we're running in full power mode until the stack works!
+//	PWR->C2CR1 &= ~(0x7);
+//	PWR->C2CR1 |= 0x4; // LPMS == Shutdown
+	
+	
+	// HW_TS_Init()....
+	// FIXME - this one _might_ need the RTC finally?
+	
+	///// APPD_Init()
+	// XXX: there's a step here about enabling debugger, which is a power thing... revisit.
+
+	// APPD_SetCPU2GpioConfig() ? lol, no, we're not getting support from ST with this code :)
+	// APPD_bleDtbCfg() ? lol, same, no ST support here bois!
+	/////
+	
+	// UTIL_LPM modes again.  we're definitely not going to be using that code, we want it better tied into freertos..
+	
+	// appe_Tl_Init()...
+	// XXX this is a real good sized one!
+	// go straight to another file for it...
 }
 
 void task_ble(void *pvParameters)
@@ -1156,6 +1212,11 @@ void task_ble(void *pvParameters)
 	struct ts_ble_t *ts = (struct ts_ble_t*)pvParameters;
 	(void)ts; // FIXME - remove when you start using it!
 	
+	
+	task_ble_setup();
+	
+	// Start the lowest level task...
+	xTaskCreate(ShciUserEvtProcess, "shci_evt", configMINIMAL_STACK_SIZE*7, NULL, tskIDLE_PRIORITY + 1, &ShciUserEvtProcessId);
 	
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1) {
