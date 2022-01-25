@@ -6,6 +6,7 @@
  */
 
 #include <cstdio>
+#include <limits.h>
 #include <stdint.h>
 
 #include <cal/cal.h>
@@ -723,8 +724,10 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification( void *pckt )
 }
 
 
-static void Ble_Tl_Init( void )
+
+static void HciUserEvtProcess(void *argument)
 {
+  (void)argument;
   HCI_TL_HciInitConf_t Hci_Tl_Init_Conf;
 
   MtxHciId = xSemaphoreCreateMutex();
@@ -735,12 +738,6 @@ static void Ble_Tl_Init( void )
   Hci_Tl_Init_Conf.StatusNotCallBack = BLE_StatusNot;
   hci_init(BLE_UserEvtRx, (void*) &Hci_Tl_Init_Conf);
 
-  return;
-}
-
-static void HciUserEvtProcess(void *argument)
-{
-  (void)argument;
 
   for(;;)
   {
@@ -910,7 +907,7 @@ static void Ble_Hci_Gap_Gatt_Init(void){
 }
 
 
-
+#if 1
 static void Adv_Update( void )
 {
 	printf("K: LP_ADV\n");
@@ -945,6 +942,8 @@ static void AdvUpdateProcess(void *argument)
 }
 
 
+#endif
+
 
 void APP_BLE_Init( void )
 {
@@ -978,11 +977,6 @@ void APP_BLE_Init( void )
   };
 
   /**
-   * Initialize Ble Transport Layer
-   */
-  Ble_Tl_Init( );
-
-  /**
    * Do not allow standby in the application
    */
   printf("KLPM:app:DISABLE\n");
@@ -1001,72 +995,9 @@ void APP_BLE_Init( void )
   {
     Error_Handler();
   }
-
-  /**
-   * Initialization of HCI & GATT & GAP layer
-   */
-  Ble_Hci_Gap_Gatt_Init();
-
-  /**
-   * Initialization of the BLE Services
-   */
-  SVCCTL_Init();
-  
-  //// THEORY - everything below here is "private app" and above here is "required init...?
-
-  /**
-   * Initialization of the BLE App Context
-   */
-  BleApplicationContext.Device_Connection_Status = APP_BLE_IDLE;
-  BleApplicationContext.BleApplicationContext_legacy.connectionHandle = 0xFFFF;
-  /**
-   * From here, all initialization are BLE application specific
-   */
-  xTaskCreate(AdvUpdateProcess, "adv", configMINIMAL_STACK_SIZE*6, NULL, tskIDLE_PRIORITY + 1, &AdvUpdateProcessId);
-
-
-  /**
-   * Initialization of ADV - Ad Manufacturer Element - Support OTA Bit Mask
-   */
-#if(BLE_CFG_OTA_REBOOT_CHAR != 0)
-  manuf_data[sizeof(manuf_data)-8] = CFG_FEATURE_OTA_REBOOT;
-#endif
-  /**
-   * Initialize DIS Application
-   */
-  DISAPP_Init();
-
-  /**
-   * Initialize HRS Application
-   */
-// FIXME kkk put it back later...  HRSAPP_Init();
-
-  /**
-   * Create timer to handle the connection state machine
-   */
-  AdvMgrTimerId = xTimerCreate("ble-adv-mgr", INITIAL_ADV_TIMEOUT, pdFALSE, NULL, &Adv_Mgr);
-
-  /**
-   * Make device discoverable
-   */
-  // yeah, but no, not like this thanks...
-//  BleApplicationContext.BleApplicationContext_legacy.advtServUUID[0] = AD_TYPE_16_BIT_SERV_UUID;
-//  BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 1;
-  //Add_Advertisment_Service_UUID(HEART_RATE_SERVICE_UUID);
-  BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 0;
-
-  /* Initialize intervals for reconnexion without intervals update */
-  AdvIntervalMin = CFG_FAST_CONN_ADV_INTERVAL_MIN;
-  AdvIntervalMax = CFG_FAST_CONN_ADV_INTERVAL_MAX;
-
-  /**
-  * Start to Advertise to be connected by Collector
-   */
-   Adv_Request(APP_BLE_FAST_ADV);
-
-/* USER CODE BEGIN APP_BLE_Init_2 */
-
-/* USER CODE END APP_BLE_Init_2 */
+   
+   // Say here, we split and let apps take over again?
+   xTaskNotify(th_ble, (1<<0), eSetBits);
   return;
 }
 
@@ -1101,7 +1032,7 @@ static void APPE_SysUserEvtRx( void * pPayload )
 
 static void ShciUserEvtProcess(void *argument)
 {
-  (void)argument;
+  void(*UserEvtRx)(void* pData) = (void(*)(void*))argument;
   printf("started SHCI\n");
   
 	TL_MM_Config_t tl_mm_config;
@@ -1115,7 +1046,7 @@ static void ShciUserEvtProcess(void *argument)
 	/**< System channel initialization */
 	SHci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*) & SystemCmdBuffer;
 	SHci_Tl_Init_Conf.StatusNotCallBack = APPE_SysStatusNot;
-	shci_init(APPE_SysUserEvtRx, (void*) &SHci_Tl_Init_Conf);
+	shci_init(UserEvtRx, (void*) &SHci_Tl_Init_Conf);
 	printf("done shci_init\n");
 
 	/**< Memory Manager channel initialization */
@@ -1213,14 +1144,95 @@ void task_ble(void *pvParameters)
 	(void)ts; // FIXME - remove when you start using it!
 	
 	
-	task_ble_setup();
+	task_ble_setup(); // this is the hw, mostly....
 	
-	// Start the lowest level task...
-	xTaskCreate(ShciUserEvtProcess, "shci_evt", configMINIMAL_STACK_SIZE*7, NULL, tskIDLE_PRIORITY + 1, &ShciUserEvtProcessId);
+	// Start the lowest level task, and pass our "user" startup task...
+	// this will fire up C2, start hci task, and let us know when we can continue...
+	xTaskCreate(ShciUserEvtProcess, "shci_evt", configMINIMAL_STACK_SIZE*7, (void*)APPE_SysUserEvtRx, tskIDLE_PRIORITY + 1, &ShciUserEvtProcessId);
+	
+	
+	// Probably, wait til we get a notification from schi/hci that we're "up"?
+	xTaskNotifyWait(ULONG_MAX, 0, NULL, portMAX_DELAY);
+	
+	// continue with "app" stuff
+		
+		
+		
+   
+   
+  /**
+   * Initialization of HCI & GATT & GAP layer
+   */
+  Ble_Hci_Gap_Gatt_Init();
+
+  /**
+   * Initialization of the BLE Services
+   */
+  SVCCTL_Init();
+  
+  //// THEORY - everything below here is "private app" and above here is "required init...?
+
+  /**
+   * Initialization of the BLE App Context
+   */
+  BleApplicationContext.Device_Connection_Status = APP_BLE_IDLE;
+  BleApplicationContext.BleApplicationContext_legacy.connectionHandle = 0xFFFF;
+  /**
+   * From here, all initialization are BLE application specific
+   */
+  xTaskCreate(AdvUpdateProcess, "adv", configMINIMAL_STACK_SIZE*6, NULL, tskIDLE_PRIORITY + 1, &AdvUpdateProcessId);
+
+
+  /**
+   * Initialization of ADV - Ad Manufacturer Element - Support OTA Bit Mask
+   */
+#if(BLE_CFG_OTA_REBOOT_CHAR != 0)
+  manuf_data[sizeof(manuf_data)-8] = CFG_FEATURE_OTA_REBOOT;
+#endif
+  /**
+   * Initialize DIS Application
+   */
+  DISAPP_Init();
+
+  /**
+   * Initialize HRS Application
+   */
+// FIXME kkk put it back later...  HRSAPP_Init();
+
+  /**
+   * Create timer to handle the connection state machine
+   */
+  AdvMgrTimerId = xTimerCreate("ble-adv-mgr", INITIAL_ADV_TIMEOUT, pdFALSE, NULL, &Adv_Mgr);
+
+  /**
+   * Make device discoverable
+   */
+  // yeah, but no, not like this thanks...
+//  BleApplicationContext.BleApplicationContext_legacy.advtServUUID[0] = AD_TYPE_16_BIT_SERV_UUID;
+//  BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 1;
+  //Add_Advertisment_Service_UUID(HEART_RATE_SERVICE_UUID);
+  BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 0;
+
+  /* Initialize intervals for reconnexion without intervals update */
+  AdvIntervalMin = CFG_FAST_CONN_ADV_INTERVAL_MIN;
+  AdvIntervalMax = CFG_FAST_CONN_ADV_INTERVAL_MAX;
+
+  /**
+  * Start to Advertise to be connected by Collector
+   */
+   Adv_Request(APP_BLE_FAST_ADV);
+
+/* USER CODE BEGIN APP_BLE_Init_2 */
+
+/* USER CODE END APP_BLE_Init_2 */
+		
+	
+	
 	
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1) {
 		xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
+//		Adv_Request(APP_BLE_FAST_ADV);
 	}
 }
 
