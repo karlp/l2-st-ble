@@ -46,20 +46,6 @@ struct ts_ble_t {
 struct ts_ble_t task_state_ble;
 
 
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
-}
 /* Private typedef -----------------------------------------------------------*/
 
 /**
@@ -186,8 +172,6 @@ typedef struct
 
 }BleApplicationContext_t;
 
-PLACE_IN_SECTION("MB_MEM1") ALIGN(4) static TL_CmdPacket_t BleCmdBuffer;
-
 #define APPBLE_GAP_DEVICE_NAME_LENGTH 7
 #define INITIAL_ADV_TIMEOUT            (pdMS_TO_TICKS(15*1000))
 #define BD_ADDR_SIZE_LOCAL    6
@@ -251,11 +235,7 @@ uint8_t kustom_adv_data[30] = {
 };
 
 
-SemaphoreHandle_t MtxHciId;
-SemaphoreHandle_t SemHciId;
-TaskHandle_t HciUserEvtProcessId;
 TimerHandle_t AdvMgrTimerId;
-
 
 
 static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
@@ -364,6 +344,7 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
 
 
 /** This is a complete re-implementation as we're not using hal/ll! */
+// mostly boilerplate, but still technically app...
 const uint8_t* BleGetBdAddress( void )
 {
 //  uint8_t *otp_addr;
@@ -416,13 +397,6 @@ const uint8_t* BleGetBdAddress( void )
   return bd_addr;
 }
 
-void hci_notify_asynch_evt(void* pdata)
-{
-  (void)pdata;
-  BaseType_t whocares;
-  xTaskNotifyFromISR(HciUserEvtProcessId, 0, eNoAction, &whocares);
-  return;
-}
 
 static void BLE_UserEvtRx( void * pPayload )
 {
@@ -440,25 +414,6 @@ static void BLE_UserEvtRx( void * pPayload )
   {
     pParam->status = HCI_TL_UserEventFlow_Disable;
   }
-}
-
-
-static void BLE_StatusNot( HCI_TL_CmdStatus_t status )
-{
-  switch (status)
-  {
-    case HCI_TL_CmdBusy:
-      xSemaphoreTake(MtxHciId, portMAX_DELAY);
-      break;
-
-    case HCI_TL_CmdAvailable:
-      xSemaphoreGive(MtxHciId);
-      break;
-
-    default:
-      break;
-  }
-  return;
 }
 
 
@@ -632,29 +587,7 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification( void *pckt )
 }
 
 
-
-static void HciUserEvtProcess(void *argument)
-{
-  (void)argument;
-  HCI_TL_HciInitConf_t Hci_Tl_Init_Conf;
-
-  MtxHciId = xSemaphoreCreateMutex();
-  SemHciId = xSemaphoreCreateBinary();
-  
-  printf("Ble_Tl_Init: making hci\n");
-  Hci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*)&BleCmdBuffer;
-  Hci_Tl_Init_Conf.StatusNotCallBack = BLE_StatusNot;
-  hci_init(BLE_UserEvtRx, (void*) &Hci_Tl_Init_Conf);
-
-
-  for(;;)
-  {
-	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
-	hci_user_evt_proc( );
-  }
-}
-
-
+// often boilerplate, but is stillapp code :|
 static void Ble_Hci_Gap_Gatt_Init(void){
 
   uint8_t role;
@@ -828,12 +761,29 @@ static void Adv_Mgr( TimerHandle_t xTimer )
 }
 
 
-void APP_BLE_Init( void )
-{
-/* USER CODE BEGIN APP_BLE_Init_1 */
 
-/* USER CODE END APP_BLE_Init_1 */
-  SHCI_C2_Ble_Init_Cmd_Packet_t ble_init_cmd_packet =
+/**
+ * The type of the payload for a system user event is tSHCI_UserEvtRxParam
+ * When the system event is both :
+ *    - a ready event (subevtcode = SHCI_SUB_EVT_CODE_READY)
+ *    - reported by the FUS (sysevt_ready_rsp == FUS_FW_RUNNING)
+ * The buffer shall not be released
+ * ( eg ((tSHCI_UserEvtRxParam*)pPayload)->status shall be set to SHCI_TL_UserEventFlow_Disable )
+ * When the status is not filled, the buffer is released by default
+ */
+// KARL - called from schi-evt task
+// karl _private app! code!
+// karl - TODO - look at recent st demo code, to flesh this out a lot more!
+static void APPE_SysUserEvtRx( void * pPayload )
+{
+  (void)pPayload;
+  /* Traces channel initialization */
+  // TODO: this is only for getting the magic trace from the cpu2, which
+  // ST support might ask for, we won't get any help with this stack anyway I suspect ;)
+  // APPD_EnableCPU2( );
+
+  
+    SHCI_C2_Ble_Init_Cmd_Packet_t ble_init_cmd_packet =
   {
     {{0,0,0}},                          /**< Header unused */
     {0,                                 /** pBleBufferAddress not used */
@@ -859,54 +809,7 @@ void APP_BLE_Init( void )
     CFG_BLE_MAX_TX_POWER}
   };
 
-  /**
-   * Do not allow standby in the application
-   */
-//  printf("KLPM:app:DISABLE\n");
-// FIXME kkk  UTIL_LPM_SetOffMode(1 << CFG_LPM_APP_BLE, UTIL_LPM_DISABLE);
-
-  /**
-   * Register the hci transport layer to handle BLE User Asynchronous Events
-   */
-   xTaskCreate(HciUserEvtProcess, "hci_evt", configMINIMAL_STACK_SIZE*8, NULL, tskIDLE_PRIORITY + 1, &HciUserEvtProcessId);
-
-
-  /**
-   * Starts the BLE Stack on CPU2
-   */
-  if (SHCI_C2_BLE_Init( &ble_init_cmd_packet ) != SHCI_Success)
-  {
-    Error_Handler();
-  }
-   
-   // Say here, we split and let apps take over again?
-   xTaskNotify(th_ble, (1<<0), eSetBits);
-  return;
-}
-
-
-
-
-/**
- * The type of the payload for a system user event is tSHCI_UserEvtRxParam
- * When the system event is both :
- *    - a ready event (subevtcode = SHCI_SUB_EVT_CODE_READY)
- *    - reported by the FUS (sysevt_ready_rsp == FUS_FW_RUNNING)
- * The buffer shall not be released
- * ( eg ((tSHCI_UserEvtRxParam*)pPayload)->status shall be set to SHCI_TL_UserEventFlow_Disable )
- * When the status is not filled, the buffer is released by default
- */
-// KARL - called from schi-evt task
-// karl _private app! code!
-static void APPE_SysUserEvtRx( void * pPayload )
-{
-  (void)pPayload;
-  /* Traces channel initialization */
-  // TODO: this is only for getting the magic trace from the cpu2, which
-  // ST support might ask for, we won't get any help with this stack anyway I suspect ;)
-  // APPD_EnableCPU2( );
-
-  APP_BLE_Init( );
+  APP_BLE_Init(&ble_init_cmd_packet, BLE_UserEvtRx);
   printf("Finished app user event (startup)\n");
   // FIXME kkk UTIL_LPM_SetOffMode(1U << CFG_LPM_APP, UTIL_LPM_ENABLE);
   return;

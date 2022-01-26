@@ -19,6 +19,8 @@
 #include <shci.h>
 #include "tl_dbg_conf.h"
 
+#include "t_ble.h"
+
 #define POOL_SIZE (CFG_TLBLE_EVT_QUEUE_LENGTH*4U*DIVC(( sizeof(TL_PacketHeader_t) + TL_BLE_EVENT_FRAME_SIZE ), 4U))
 
 PLACE_IN_SECTION("MB_MEM2") ALIGN(4) static uint8_t EvtPool[POOL_SIZE];
@@ -26,9 +28,15 @@ PLACE_IN_SECTION("MB_MEM2") ALIGN(4) static TL_CmdPacket_t SystemCmdBuffer;
 PLACE_IN_SECTION("MB_MEM2") ALIGN(4) static uint8_t SystemSpareEvtBuffer[sizeof(TL_PacketHeader_t) + TL_EVT_HDR_SIZE + 255U];
 PLACE_IN_SECTION("MB_MEM2") ALIGN(4) static uint8_t BleSpareEvtBuffer[sizeof(TL_PacketHeader_t) + TL_EVT_HDR_SIZE + 255];
 
+PLACE_IN_SECTION("MB_MEM1") ALIGN(4) static TL_CmdPacket_t BleCmdBuffer;
+
 SemaphoreHandle_t MtxShciId;
 SemaphoreHandle_t SemShciId;
 TaskHandle_t ShciUserEvtProcessId;
+
+SemaphoreHandle_t MtxHciId;
+SemaphoreHandle_t SemHciId;
+TaskHandle_t HciUserEvtProcessId;
 
 static void _tune_hse(void)
 {
@@ -61,6 +69,16 @@ static void _tune_hse(void)
 	RCC->HSECR |= (tune & 0x3f) << 8;
 }
 
+/**
+ * you probably want something better here, but it's enough for now.
+ */
+static void Error_Handler(void)
+{
+	__disable_irq();
+	while (1) {
+	}
+}
+
 static void APPE_SysStatusNot(SHCI_TL_CmdStatus_t status)
 {
 	switch (status) {
@@ -70,6 +88,25 @@ static void APPE_SysStatusNot(SHCI_TL_CmdStatus_t status)
 
 	case SHCI_TL_CmdAvailable:
 		xSemaphoreGive(MtxShciId);
+		break;
+
+	default:
+		break;
+	}
+	return;
+}
+
+// shared
+
+static void BLE_StatusNot(HCI_TL_CmdStatus_t status)
+{
+	switch (status) {
+	case HCI_TL_CmdBusy:
+		xSemaphoreTake(MtxHciId, portMAX_DELAY);
+		break;
+
+	case HCI_TL_CmdAvailable:
+		xSemaphoreGive(MtxHciId);
 		break;
 
 	default:
@@ -112,6 +149,51 @@ static void ShciUserEvtProcess(void *argument)
 		printf("SCHI: event!\n");
 		shci_user_evt_proc();
 	}
+}
+
+static void HciUserEvtProcess(void *argument)
+{
+	void(*UserEvtRx)(void* pData) = (void(*)(void*))argument;
+	HCI_TL_HciInitConf_t Hci_Tl_Init_Conf;
+
+	MtxHciId = xSemaphoreCreateMutex();
+	SemHciId = xSemaphoreCreateBinary();
+
+	printf("Ble_Tl_Init: making hci\n");
+	Hci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*) & BleCmdBuffer;
+	Hci_Tl_Init_Conf.StatusNotCallBack = BLE_StatusNot;
+	hci_init(UserEvtRx, (void*) &Hci_Tl_Init_Conf);
+
+	for (;;) {
+		xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
+		hci_user_evt_proc();
+	}
+}
+
+void APP_BLE_Init(SHCI_C2_Ble_Init_Cmd_Packet_t *ble_init_cmd_packet, void(*user_func)(void*))
+{
+	/**
+	 * Do not allow standby in the application
+	 */
+	//  printf("KLPM:app:DISABLE\n");
+	// FIXME kkk  UTIL_LPM_SetOffMode(1 << CFG_LPM_APP_BLE, UTIL_LPM_DISABLE);
+
+	/**
+	 * Register the hci transport layer to handle BLE User Asynchronous Events
+	 */
+	xTaskCreate(HciUserEvtProcess, "hci_evt", configMINIMAL_STACK_SIZE * 8, (void*) user_func, tskIDLE_PRIORITY + 1, &HciUserEvtProcessId);
+
+
+	/**
+	 * Starts the BLE Stack on CPU2
+	 */
+	if (SHCI_C2_BLE_Init(ble_init_cmd_packet) != SHCI_Success) {
+		Error_Handler();
+	}
+
+	// Say here, we split and let apps take over again?
+	xTaskNotify(th_ble, (1 << 0), eSetBits);
+	return;
 }
 
 void ble_pre(void)
@@ -210,10 +292,20 @@ void shci_notify_asynch_evt(void* pdata)
 	return;
 }
 
+/** API impl called from STM32_WPAN hci_tl.c */
+void hci_notify_asynch_evt(void* pdata)
+{
+	(void) pdata;
+	BaseType_t whocares;
+	xTaskNotifyFromISR(HciUserEvtProcessId, 0, eNoAction, &whocares);
+	return;
+}
+
 
 extern "C" {
 
 #if (DEBUG_BUFS == 1)
+
 	void DbgTraceBuffer(const void *pBuffer, uint32_t u32Length, const char *strFormat, ...)
 	{
 		va_list vaArgs;
