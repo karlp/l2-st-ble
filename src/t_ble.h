@@ -1,5 +1,7 @@
 #pragma once
 
+#include "tl_dbg_conf.h"
+
 /** Lets the BLE stack do some presetup...  (this screams for a constructor? */
 void ble_pre(void);
 

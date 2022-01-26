@@ -17,6 +17,7 @@
 #include <hci_tl.h>
 #include <shci_tl.h>
 #include <shci.h>
+#include "tl_dbg_conf.h"
 
 #define POOL_SIZE (CFG_TLBLE_EVT_QUEUE_LENGTH*4U*DIVC(( sizeof(TL_PacketHeader_t) + TL_BLE_EVENT_FRAME_SIZE ), 4U))
 
@@ -209,3 +210,21 @@ void shci_notify_asynch_evt(void* pdata)
 	return;
 }
 
+
+extern "C" {
+
+#if (DEBUG_BUFS == 1)
+	void DbgTraceBuffer(const void *pBuffer, uint32_t u32Length, const char *strFormat, ...)
+	{
+		va_list vaArgs;
+		uint32_t u32Index;
+		va_start(vaArgs, strFormat);
+		vprintf(strFormat, vaArgs);
+		va_end(vaArgs);
+		for (u32Index = 0; u32Index < u32Length; u32Index++) {
+			printf(" %02X", ((const uint8_t *) pBuffer)[u32Index]);
+		}
+	}
+#endif
+
+}

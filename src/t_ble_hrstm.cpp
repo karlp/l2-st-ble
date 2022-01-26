@@ -1000,22 +1000,3 @@ void task_ble(void *pvParameters)
 	}
 }
 
-
-
-// Shitty ST code for dumping a buffer.
-extern "C" {
-
-void DbgTraceBuffer(const void *pBuffer, uint32_t u32Length, const char *strFormat, ...)
-{
-  va_list vaArgs;
-  uint32_t u32Index;
-  va_start(vaArgs, strFormat);
-  vprintf(strFormat, vaArgs);
-  va_end(vaArgs);
-  for (u32Index = 0; u32Index < u32Length; u32Index ++)
-  {
-    printf(" %02X", ((const uint8_t *) pBuffer)[u32Index]);
-  }
-}
-
-}

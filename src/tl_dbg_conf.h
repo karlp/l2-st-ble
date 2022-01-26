@@ -1,8 +1,15 @@
 #pragma once
+
 /**
- * What's really needed here?
+ * This is called by C code from ST middleware.
  */
-void DbgTraceBuffer( const void *pBuffer , uint32_t u32Length , const char *strFormat , ... );
+#ifdef __cplusplus
+extern "C" {
+#endif
+	void DbgTraceBuffer( const void *pBuffer , uint32_t u32Length , const char *strFormat , ... );
+#ifdef __cplusplus	
+}
+#endif
 
 #define USE_NULL 0
 #define USE_STDIO 1
