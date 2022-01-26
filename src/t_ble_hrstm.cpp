@@ -212,22 +212,6 @@ uint8_t manuf_data[14] = {
 
 };
 
-uint8_t kustom_adv_data[30] = {
-	sizeof(kustom_adv_data) - 1, AD_TYPE_MANUFACTURER_SPECIFIC_DATA,
-	0x99, 0x09, /* 0x0999, eTactica assigned number */
-	0xca, /* flags */
-	0xfe, /* version */
-	1, 1, 1, /* current ch1 (24bit) */
-	2, 2, 2,
-	3, 3, 3,
-	6, 6, 6, /* voltage ch1 (24bit) */
-	7, 7, 7,
-	8, 8, 8,
-	0xa, 0xa, /* pf ch 1 (16bit) */
-	0xb, 0xb,
-	0xc, 0xc,
-};
-
 TimerHandle_t AdvMgrTimerId;
 
 static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
@@ -255,9 +239,7 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
 		&& ((BleApplicationContext.Device_Connection_Status == APP_BLE_FAST_ADV)
 		|| (BleApplicationContext.Device_Connection_Status == APP_BLE_LP_ADV))) {
 		/* Connection in ADVERTISE mode have to stop the current advertising */
-		/* (must stop ads before changing them, that's all) */
-		//ret = aci_gap_set_non_discoverable();
-		ret = hci_le_set_advertise_enable(0);
+		ret = aci_gap_set_non_discoverable();
 		if (ret == BLE_STATUS_SUCCESS) {
 			APP_DBG_MSG("Successfully Stopped Advertising \n");
 		} else {
@@ -267,38 +249,20 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
 
 	BleApplicationContext.Device_Connection_Status = New_Status;
 	/* Start Fast or Low Power Advertising */
-#if 0
-	/* aci level command forcible includes flags and tx power and thigns we don't want. */
 	ret = aci_gap_set_discoverable(
 		ADV_IND,
 		Min_Inter,
 		Max_Inter,
 		PUBLIC_ADDR,
 		NO_WHITE_LIST_USE, /* use white list */
-		0, NULL, /* local name */
-		0, NULL, /* uuid lists */
+		sizeof(local_name), (const uint8_t*)&local_name,
+		BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen,
+		BleApplicationContext.BleApplicationContext_legacy.advtServUUID,
 		0,
 		0);
 
-
 	/* Update Advertising data */
-	//ret = aci_gap_update_adv_data(sizeof(manuf_data), (uint8_t*) manuf_data);
-	//ret = aci_gap_update_adv_data(sizeof(kustom_adv_data), (uint8_t*) kustom_adv_data);
-#endif
-	ret = hci_le_set_advertising_parameters(Min_Inter, Max_Inter, GAP_ADV_IND, PUBLIC_ADDR, 0, NULL, 3, 0);
-	if (ret != BLE_STATUS_SUCCESS) {
-		printf("K: Failed hci le adv params: %d (%#x)\n", ret, ret);
-	}
-	ret = hci_le_set_advertising_data(sizeof(kustom_adv_data), kustom_adv_data);
-	if (ret != BLE_STATUS_SUCCESS) {
-		printf("K: Failed hci le adv data: %d (%#x)\n", ret, ret);
-	}
-	ret = hci_le_set_advertise_enable(1);
-	if (ret != BLE_STATUS_SUCCESS) {
-		printf("K: Failed hci start adv: %d (%#x)\n", ret, ret);
-	}
-
-
+	ret = aci_gap_update_adv_data(sizeof(manuf_data), (uint8_t*) manuf_data);
 	if (ret == BLE_STATUS_SUCCESS) {
 		if (New_Status == APP_BLE_FAST_ADV) {
 			APP_DBG_MSG("Successfully Start Fast Advertising \n");
@@ -415,7 +379,6 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt)
 		}
 
 		/* restart advertising */
-		printf("K: restart fast adv\n");
 		Adv_Request(APP_BLE_FAST_ADV);
 
 		/* USER CODE BEGIN EVT_DISCONN_COMPLETE */
@@ -472,7 +435,6 @@ SVCCTL_UserEvtFlowStatus_t SVCCTL_App_Notification(void *pckt)
 			 * The connection is done, there is no need anymore to schedule the LP ADV
 			 */
 			connection_complete_event = (hci_le_connection_complete_event_rp0 *) meta_evt->data;
-			printf("K: Turning off advertising, as we got a connection?! no thanks!\n");
 			xTimerStop(AdvMgrTimerId, 50 * portTICK_PERIOD_MS); // TODO -check return code
 
 			APP_DBG_MSG("HCI_LE_CONNECTION_COMPLETE_SUBEVT_CODE for connection handle 0x%x\n", connection_complete_event->Connection_Handle);
@@ -698,6 +660,18 @@ static void Ble_Hci_Gap_Gatt_Init(void)
 	}
 }
 
+static void Add_Advertisment_Service_UUID(uint16_t servUUID)
+{
+	BleApplicationContext.BleApplicationContext_legacy.advtServUUID[BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen] =
+		(uint8_t) (servUUID & 0xFF);
+	BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen++;
+	BleApplicationContext.BleApplicationContext_legacy.advtServUUID[BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen] =
+		(uint8_t) (servUUID >> 8) & 0xFF;
+	BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen++;
+
+	return;
+}
+
 static void Adv_Mgr(TimerHandle_t xTimer)
 {
 	(void) xTimer;
@@ -731,9 +705,10 @@ static void APPE_SysUserEvtRx(void * pPayload)
 	// ST support might ask for, we won't get any help with this stack anyway I suspect ;)
 	// APPD_EnableCPU2( );
 
-	SHCI_C2_Ble_Init_Cmd_Packet_t ble_init_cmd_packet ={
+	SHCI_C2_Ble_Init_Cmd_Packet_t ble_init_cmd_packet = {
 		{
-			{0, 0, 0}}, /**< Header unused */
+			{0, 0, 0}
+		}, /**< Header unused */
 		{0, /** pBleBufferAddress not used */
 			0, /** BleBufferSize not used */
 			CFG_BLE_NUM_GATT_ATTRIBUTES,
@@ -768,18 +743,12 @@ void task_ble(void *pvParameters)
 	struct ts_ble_t *ts = (struct ts_ble_t*) pvParameters;
 	(void) ts; // FIXME - remove when you start using it!
 
-
-	task_ble_setup(APPE_SysUserEvtRx); // this is the hw, mostly....
+	// This starts (s)hci layers and registers our callback
+	task_ble_setup(APPE_SysUserEvtRx);
 
 	// Wait here til we get a notification from shci that we're up
 	printf("t_ble: Waiting for SHCI\n");
 	xTaskNotifyWait(ULONG_MAX, 0, NULL, portMAX_DELAY);
-
-	// continue with "app" stuff
-
-
-
-
 
 	/**
 	 * Initialization of HCI & GATT & GAP layer
@@ -790,8 +759,6 @@ void task_ble(void *pvParameters)
 	 * Initialization of the BLE Services
 	 */
 	SVCCTL_Init();
-
-	//// THEORY - everything below here is "private app" and above here is "required init...?
 
 	/**
 	 * Initialization of the BLE App Context
@@ -826,23 +793,14 @@ void task_ble(void *pvParameters)
 	/**
 	 * Make device discoverable
 	 */
-	// yeah, but no, not like this thanks...
-	//  BleApplicationContext.BleApplicationContext_legacy.advtServUUID[0] = AD_TYPE_16_BIT_SERV_UUID;
-	//  BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 1;
-	//Add_Advertisment_Service_UUID(HEART_RATE_SERVICE_UUID);
-	BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 0;
+	BleApplicationContext.BleApplicationContext_legacy.advtServUUID[0] = AD_TYPE_16_BIT_SERV_UUID;
+	BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 1;
+	Add_Advertisment_Service_UUID(HEART_RATE_SERVICE_UUID);
 
 	/**
 	 * Start to Advertise to be connected by Collector
 	 */
 	Adv_Request(APP_BLE_FAST_ADV);
-
-	/* USER CODE BEGIN APP_BLE_Init_2 */
-
-	/* USER CODE END APP_BLE_Init_2 */
-
-
-
 
 	//	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1) {
