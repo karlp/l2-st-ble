@@ -115,6 +115,7 @@ int main() {
 
 	xTaskCreate(task_ble, "ble", configMINIMAL_STACK_SIZE*3, &task_state_ble, tskIDLE_PRIORITY + 1, &th_ble);
 
+	printf("Starting OS!\n"); // FIXME - print out rtc date/time here ;)
 	vTaskStartScheduler();
 
 	return 0;

@@ -920,6 +920,7 @@ static void Adv_Update( void )
 static void Adv_Mgr( TimerHandle_t xTimer )
 {
 	(void)xTimer;
+	printf("adv_mgr tick\n");
   /**
    * The code shall be executed in the background as an aci command may be sent
    * The background is the only place where the application can make sure a new aci command
@@ -979,7 +980,7 @@ void APP_BLE_Init( void )
   /**
    * Do not allow standby in the application
    */
-  printf("KLPM:app:DISABLE\n");
+//  printf("KLPM:app:DISABLE\n");
 // FIXME kkk  UTIL_LPM_SetOffMode(1 << CFG_LPM_APP_BLE, UTIL_LPM_DISABLE);
 
   /**
@@ -1023,7 +1024,7 @@ static void APPE_SysUserEvtRx( void * pPayload )
   // APPD_EnableCPU2( );
 
   APP_BLE_Init( );
-  printf("KLP: enmabled\n");
+  printf("Finished app user event (startup)\n");
   // FIXME kkk UTIL_LPM_SetOffMode(1U << CFG_LPM_APP, UTIL_LPM_ENABLE);
   return;
 }
@@ -1033,7 +1034,7 @@ static void APPE_SysUserEvtRx( void * pPayload )
 static void ShciUserEvtProcess(void *argument)
 {
   void(*UserEvtRx)(void* pData) = (void(*)(void*))argument;
-  printf("started SHCI\n");
+  printf("SHCI starting\n");
   
 	TL_MM_Config_t tl_mm_config;
 	SHCI_TL_HciInitConf_t SHci_Tl_Init_Conf;
@@ -1047,7 +1048,6 @@ static void ShciUserEvtProcess(void *argument)
 	SHci_Tl_Init_Conf.p_cmdbuffer = (uint8_t*) & SystemCmdBuffer;
 	SHci_Tl_Init_Conf.StatusNotCallBack = APPE_SysStatusNot;
 	shci_init(UserEvtRx, (void*) &SHci_Tl_Init_Conf);
-	printf("done shci_init\n");
 
 	/**< Memory Manager channel initialization */
 	tl_mm_config.p_BleSpareEvtBuffer = BleSpareEvtBuffer;
@@ -1055,11 +1055,10 @@ static void ShciUserEvtProcess(void *argument)
 	tl_mm_config.p_AsynchEvtPool = EvtPool;
 	tl_mm_config.AsynchEvtPoolSize = POOL_SIZE;
 	TL_MM_Init(&tl_mm_config);
-	printf("done TL_MM_init\n");
 
 	TL_Enable();
-	printf("done TL_Enable\n");
 	
+	printf("SHCI running\n");
   
   for(;;)
   {
@@ -1067,7 +1066,7 @@ static void ShciUserEvtProcess(void *argument)
 
     /* USER CODE END SHCI_USER_EVT_PROCESS_1 */
 	xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
-	printf("shci: event!\n");
+	printf("SCHI: event!\n");
      shci_user_evt_proc();
     /* USER CODE BEGIN SHCI_USER_EVT_PROCESS_2 */
 
@@ -1151,7 +1150,8 @@ void task_ble(void *pvParameters)
 	xTaskCreate(ShciUserEvtProcess, "shci_evt", configMINIMAL_STACK_SIZE*7, (void*)APPE_SysUserEvtRx, tskIDLE_PRIORITY + 1, &ShciUserEvtProcessId);
 	
 	
-	// Probably, wait til we get a notification from schi/hci that we're "up"?
+	// Wait here til we get a notification from shci that we're up
+	printf("t_ble: Waiting for SHCI\n");
 	xTaskNotifyWait(ULONG_MAX, 0, NULL, portMAX_DELAY);
 	
 	// continue with "app" stuff
