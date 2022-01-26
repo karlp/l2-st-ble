@@ -1,8 +1,7 @@
 /*
- * top level ble task code.... just to not get _toooo_ much clutter
- * 
- * We're ripped off large chunks of the "app_ble.c" from the HRS_FREERTOS demo from st,
- * at least getting started.
+ * This is _an_ implementation of "task_ble"
+ * which is just a demo of how you can do things.
+ * This one is intended to be "same" as ST's BLE_HeartRateFreeRTOS demo
  */
 
 #include <cstdio>
@@ -591,7 +590,7 @@ static void Ble_Hci_Gap_Gatt_Init(void){
   uint16_t gap_service_handle, gap_dev_name_char_handle, gap_appearance_char_handle;
   const uint8_t *bd_addr;
   uint32_t srd_bd_addr[2];
-  uint16_t appearance[1] = { BLE_CFG_GAP_APPEARANCE };
+  uint16_t appearance[1] = { BLE_CFG_HR_SENSOR_APPEARANCE };
 
   /**
    * Initialize HCI layer

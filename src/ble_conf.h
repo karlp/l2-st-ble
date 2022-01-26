@@ -97,7 +97,6 @@
 #define BLE_CFG_HR_SENSOR_APPEARANCE                (832)
 #define BLE_CFG_APPEARANCE_SENSOR_GENERIC			1344
 #define BLE_CFG_APPEARANCE_SENSOR_ENERGY			BLE_CFG_APPEARANCE_SENSOR_GENERIC + 12
-#define BLE_CFG_GAP_APPEARANCE                      (BLE_CFG_APPEARANCE_SENSOR_ENERGY)
 
 /******************************************************************************
  * Over The Air Feature (OTA) - STM Proprietary
