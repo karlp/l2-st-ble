@@ -1,0 +1,28 @@
+Licensed under _your_ choice the following SPDX licenses, 
+whichever makes your integration job easier.
+* Apache-2.0
+* BSD-2-Clause
+* EPL-2.0
+* ISC
+* LGPL-2.0-or-later
+* MIT
+* WTFPL
+* Zlib
+
+Do note that this project includes:
+* FreeRTOS.  It has it's own license (MIT)
+* ARM CMSIS. It has it's own license (Apache-2.0)
+* laks. It has it's own license (BSD-2-Clause)
+
+And.. Importantly...
+* ST's STM32_WPAN middleware.  It has it's own license. (SLA0044)
+
+That's the main one that will give you some concern, however, as this project is about STM32WB, 
+so Clauses 2 and 4 is basically covered.
+
+Well, and clause 5, but, well, as long as you're not trying to _claim_ their code, I don't think
+that's an issue.
+
+See https://www.st.com/SLA0044 for specifics
+
+
