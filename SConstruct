@@ -160,7 +160,7 @@ objs_wpan = [env_wpan.Object(f) for f in sources_wpan]
 ###########
 
 env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
-sources_shared = ['syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
+sources_shared = ['main.cpp', 'syszyp.cpp', 't_ble_shared.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
 
 # Uncomment if desired...
 #sources_shared += ['call-graphing.cpp']
@@ -168,8 +168,8 @@ sources_shared = ['syszyp.cpp', 't_ble.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp']
 
 fsources = [env.Object(f) for f in Flatten([  [os.path.join('src', x) for x in sources_shared] + sources_freertos + env['LIB_SOURCES']])]
 
-fw = env.Program("app-kustom1.elf", ["src/app-kustom1.cpp"] + fsources + objs_wpan)
+fw = env.Program("app-kustom1.elf", ["src/t_ble_kustom1.cpp"] + fsources + objs_wpan)
 env.Depends(fw, env['LINK_SCRIPT'])
 
-fw = env.Program("app-hrstm.elf", ["src/app-hrstm.cpp"] + fsources + objs_wpan)
+fw = env.Program("app-hrstm.elf", ["src/t_ble_hrstm.cpp"] + fsources + objs_wpan)
 env.Depends(fw, env['LINK_SCRIPT'])
