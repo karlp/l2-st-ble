@@ -216,11 +216,6 @@ typedef struct
   BleGlobalContext_t BleApplicationContext_legacy;
   APP_BLE_ConnStatus_t Device_Connection_Status;
 
-  /**
-   * ID of the Advertising Timeout
-   */
-  uint8_t Advertising_mgr_timer_Id;
-
 }BleApplicationContext_t;
 
 #define POOL_SIZE (CFG_TLBLE_EVT_QUEUE_LENGTH*4U*DIVC(( sizeof(TL_PacketHeader_t) + TL_BLE_EVENT_FRAME_SIZE ), 4U))
@@ -257,7 +252,6 @@ PLACE_IN_SECTION("TAG_OTA_END") const uint32_t MagicKeywordValue = 0x94448A29 ;
 PLACE_IN_SECTION("TAG_OTA_START") const uint32_t MagicKeywordAddress = (uint32_t)&MagicKeywordValue;
 
 PLACE_IN_SECTION("BLE_APP_CONTEXT") static BleApplicationContext_t BleApplicationContext;
-PLACE_IN_SECTION("BLE_APP_CONTEXT") static uint16_t AdvIntervalMin, AdvIntervalMax;
 
 
 static const char local_name[] = { AD_TYPE_COMPLETE_LOCAL_NAME ,'H','R','S','T','M'};
@@ -301,7 +295,6 @@ SemaphoreHandle_t MtxShciId;
 SemaphoreHandle_t SemShciId;
 TaskHandle_t HciUserEvtProcessId;
 TaskHandle_t ShciUserEvtProcessId;
-TaskHandle_t AdvUpdateProcessId;
 TimerHandle_t AdvMgrTimerId;
 
 
@@ -329,8 +322,8 @@ static void Adv_Request(APP_BLE_ConnStatus_t New_Status)
 
   if (New_Status == APP_BLE_FAST_ADV)
   {
-    Min_Inter = AdvIntervalMin;
-    Max_Inter = AdvIntervalMax;
+    Min_Inter = CFG_FAST_CONN_ADV_INTERVAL_MIN;
+    Max_Inter = CFG_FAST_CONN_ADV_INTERVAL_MAX;
   }
   else
   {
@@ -906,43 +899,17 @@ static void Ble_Hci_Gap_Gatt_Init(void){
 }
 
 
-#if 1
-static void Adv_Update( void )
-{
-	printf("K: LP_ADV\n");
-  Adv_Request(APP_BLE_LP_ADV);
-
-  return;
-}
-
-/** K Called on timer! */
 static void Adv_Mgr( TimerHandle_t xTimer )
 {
 	(void)xTimer;
-	printf("adv_mgr tick\n");
   /**
    * The code shall be executed in the background as an aci command may be sent
    * The background is the only place where the application can make sure a new aci command
    * is not sent if there is a pending one
    */
-  xTaskNotifyGive(AdvUpdateProcessId);
+	xTaskNotifyGive(th_ble);
   return;
 }
-
-
-static void AdvUpdateProcess(void *argument)
-{
-  (void)argument;
-
-  for(;;)
-  {
-    xTaskNotifyWait(1, 1, NULL, portMAX_DELAY);
-    Adv_Update( );
-  }
-}
-
-
-#endif
 
 
 void APP_BLE_Init( void )
@@ -1179,8 +1146,6 @@ void task_ble(void *pvParameters)
   /**
    * From here, all initialization are BLE application specific
    */
-  xTaskCreate(AdvUpdateProcess, "adv", configMINIMAL_STACK_SIZE*6, NULL, tskIDLE_PRIORITY + 1, &AdvUpdateProcessId);
-
 
   /**
    * Initialization of ADV - Ad Manufacturer Element - Support OTA Bit Mask
@@ -1212,10 +1177,6 @@ void task_ble(void *pvParameters)
   //Add_Advertisment_Service_UUID(HEART_RATE_SERVICE_UUID);
   BleApplicationContext.BleApplicationContext_legacy.advtServUUIDlen = 0;
 
-  /* Initialize intervals for reconnexion without intervals update */
-  AdvIntervalMin = CFG_FAST_CONN_ADV_INTERVAL_MIN;
-  AdvIntervalMax = CFG_FAST_CONN_ADV_INTERVAL_MAX;
-
   /**
   * Start to Advertise to be connected by Collector
    */
@@ -1228,10 +1189,11 @@ void task_ble(void *pvParameters)
 	
 	
 	
-	TickType_t xLastWakeTime = xTaskGetTickCount();
+//	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1) {
-		xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
-//		Adv_Request(APP_BLE_FAST_ADV);
+//		xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
+		xTaskNotifyWait(ULONG_MAX, 0, 0, portMAX_DELAY);
+		Adv_Request(APP_BLE_LP_ADV);
 	}
 }
 
