@@ -23,10 +23,6 @@ auto led_b = GPIOB[5];
 
 #define SAVE_TO_SECOND_BUFFER
 
-// This makes it more ~equivalent to the ST demos, that all run at 32MHz...
-#define RUNNING_AT_32MHZ
-
-#if defined(RUNNING_AT_32MHZ)
 /**
  * We just want to run at 32Mhz, so skip the "normal" rcc_init() full speed option
  */
@@ -38,30 +34,8 @@ void krcc_init32(void) {
 	RCC->CR |= (1<<16);
 	while(!(RCC->CR & (1<<17)));
 
-	/* I initially setup PLL to 32Mhz, because I had PLL to 64, and just downtuned
-	 * but if you want lower power, use HSE by itself at 32.  The PLL is useless burn
-	 */
-#if defined(USE_PLL_32)
-	// Configure and enable PLL.
-	// R=2, Q = 2, P = 2, M = 2, N = 8, src=HSE
-	const auto m = 2;
-	const auto n = 8;
-	const auto p = 2;
-	const auto q = 2;
-	const auto r = 4;
-	//const auto hse_pre_div2 = false;
-
-	RCC->PLLCFGR = ((r-1)<<29) | (1<<28) | ((q-1)<<25) | ((p-1)<<17) | (n<<8) | ((m-1)<<4) | (3<<0);
-	RCC->CR |= (1<<24);
-	while(!(RCC->CR & (1<<25)));
-
-	// Switch to PLL.
-	RCC->CFGR |= 0x3;
-	while((RCC->CFGR & (3 << 2)) != (3 << 2)); // SWS = PLL
-#else
 	RCC->CFGR |= 0x2;
 	while ((RCC->CFGR & (2<<2)) != (2<<2)); // SWS = HSE
-#endif
 	// Leave prescalers alone...
 	
 	PWR->CR1 |= (1<<8); // Unlock backup domain
@@ -78,7 +52,6 @@ void krcc_init32(void) {
 	// Set RF wakeup clock to LSE
 	RCC->CSR |= (1<<14);	
 }
-#endif
 
 
 static void prvTaskBlinkGreen(void *pvParameters)
@@ -102,11 +75,7 @@ int main() {
 	// Turn on DWT_CYCNT.  We'll use it ourselves, and pc sampling needs it too.
 	DWT->CTRL |= 1;
 	
-#if defined(RUNNING_AT_32MHZ)
 	krcc_init32();
-#else
-	rcc_init();
-#endif
 
 	RCC.enable(rcc::GPIOB);
 	RCC.enable(rcc::GPIOE);
