@@ -127,13 +127,14 @@ sources_wpan = [
     "%s/utilities/stm_queue.c" % env["WPAN"],
     # deliberately avoid dbg_trace, we're not using st hal stuff here!
     ]
-# You'll want to pick/choose from the following...
-wpan_services = [
+# This is the list of services you may wish to add to your final service, 
+# see "this_wpan" variables for each binary below
+#sources_wpan_services = [
 #    "bas.c",
 #    "bls.c",
 #    "bvopus_service_stm.c",
 #    "crs_stm.c",
-    "dis.c",
+#    "dis.c",
 #    "eds_stm.c",
 #    "hids.c",
 #    "hrs.c",
@@ -145,13 +146,12 @@ wpan_services = [
 #    "opus_interface_stm.c",
 #    "otas_stm.c",
 #    "p2p_stm.c",
-    "svc_ctl.c",
+#    "svc_ctl.c",
 #    "template_stm.c",
 #    "tps.c",
 #    "zdd.c",
-]
+#]
 
-sources_wpan += [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in wpan_services]
 # ST has lots of format errors in their code, and there's not much we can do about it...
 env_wpan = env.Clone()
 env_wpan.Append(CCFLAGS = ["-Wno-format"])
@@ -166,10 +166,12 @@ sources_shared = ['main.cpp', 'syszyp.cpp', 't_ble_shared.cpp', 'dis_app.c', 'tg
 #sources_shared += ['call-graphing.cpp']
 #env.Append(CCFLAGS = ["-finstrument-functions", "-finstrument-functions-exclude-file-list=cmsis,freertos,laks"])
 
-fsources = [env.Object(f) for f in Flatten([  [os.path.join('src', x) for x in sources_shared] + sources_freertos + env['LIB_SOURCES']])]
-
-fw = env.Program("app-kustom1.elf", ["src/t_ble_kustom1.cpp"] + fsources + objs_wpan)
+# Select just the svc layer portions this app needs
+this_wpan = objs_wpan + [env_wpan.Object(f) for f in [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in ["svc_ctl.c", "dis.c"]]]
+fw = env.Program("app-kustom1.elf", [os.path.join("src", x) for x in ["t_ble_kustom1.cpp"] + sources_shared] + sources_freertos + env['LIB_SOURCES'] + this_wpan)
 env.Depends(fw, env['LINK_SCRIPT'])
 
-fw = env.Program("app-hrstm.elf", ["src/t_ble_hrstm.cpp"] + fsources + objs_wpan)
+# Select just the svc layer portions this app needs
+this_wpan = objs_wpan + [env_wpan.Object(f) for f in [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in ["svc_ctl.c", "dis.c", "hrs.c"]]]
+fw = env.Program("app-hrstm.elf", [os.path.join("src", x) for x in ["t_ble_hrstm.cpp", "hrs_app.cpp"] + sources_shared] + sources_freertos + env['LIB_SOURCES'] + this_wpan)
 env.Depends(fw, env['LINK_SCRIPT'])

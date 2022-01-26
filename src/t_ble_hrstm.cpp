@@ -29,11 +29,10 @@
 #include <shci_tl.h>
 #include <shci.h>
 
-#include "dis_app.h"
-
-
 #include "t_ble.h"
 
+#include "dis_app.h"
+#include "hrs_app.h"
 
 TaskHandle_t th_ble;
 
@@ -817,7 +816,7 @@ void task_ble(void *pvParameters)
 	/**
 	 * Initialize HRS Application
 	 */
-	// FIXME kkk put it back later...  HRSAPP_Init();
+	HRSAPP_Init();
 
 	/**
 	 * Create timer to handle the connection state machine
