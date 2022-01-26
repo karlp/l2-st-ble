@@ -232,8 +232,7 @@ PLACE_IN_SECTION("MB_MEM2") ALIGN(4) static uint8_t BleSpareEvtBuffer[sizeof(TL_
 
 PLACE_IN_SECTION("MB_MEM1") ALIGN(4) static TL_CmdPacket_t BleCmdBuffer;
 #define APPBLE_GAP_DEVICE_NAME_LENGTH 7
-#define FAST_ADV_TIMEOUT               (30*1000*1000/CFG_TS_TICK_VAL) /**< 30s */
-#define INITIAL_ADV_TIMEOUT            (60*1000*1000/CFG_TS_TICK_VAL) /**< 60s */
+#define INITIAL_ADV_TIMEOUT            (pdMS_TO_TICKS(15*1000))
 #define BD_ADDR_SIZE_LOCAL    6
 
 static uint8_t bd_addr_udn[BD_ADDR_SIZE_LOCAL];
