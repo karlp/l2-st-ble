@@ -7,6 +7,7 @@
 #include <pwr/pwr.h>
 #include <rcc/flash.h>
 #include <rcc/rcc.h>
+#include <rtc/rtc.h>
 #include <wpan/hsem.h>
 #include <wpan/ipcc.h>
 
@@ -54,6 +55,64 @@ void krcc_init32(void) {
 }
 
 
+static void krtc_init(void) {
+	// Use the last backup register as a flag that we're already initialized
+	if (RTC->BKP[19] == 0xcafe) {
+		printf("RTC: already setup!\n");
+		return;
+	}
+	PWR->CR1 |= (1<<8); // Unlock backup domain
+
+	// We've decided that it's "not setup" so go ahead and hard reset
+	// The RTC.  You want to be careful with this, or you lose your
+	// precious calendar.
+	printf("hard reset backup domain\n");
+	RCC->BDCR |= (1<<16);
+	RCC->BDCR &= ~(1<<16);
+
+	// make sure LSE is on, we need that for most sane uses of RTC
+	RCC->BDCR |= 1;
+	while (!(RCC->BDCR & (1<<1))) {
+		; // wait for LSERDY
+	}
+
+	RCC->BDCR |= (1<<8); // RTCSEL == LSE
+	RCC->BDCR |= (1<<15); // RTCEN
+	RCC.enable(rcc::RTCAPB);
+	while (!(RCC->APB1ENR1 & rcc::RTCAPB)) {
+		; // make sure we have access!
+	}
+
+	RTC.unlock();
+
+	RTC->PRER = 0x7f00ff; // default, gives 1sec from 32768
+
+	// setup calendar as well
+	RTC->ISR = (1<<7);
+	while (!(RTC->ISR & (1<<6))) {
+		; // Wait for INITF
+	}
+	RTC->CR &= ~(1<<6);  // 24hr format.
+	RTC->DR = 0x220127 | (4<<13); // Thursday,2022-01-27.
+	RTC->TR = 0x092042;  // 09:20:42 AM
+	RTC->ISR &= ~(1<<7); // Clear init, start calendar
+
+	// set wakekup clock sel to rtc/16, so ~488usecs per tick
+	RTC->CR &= ~(0x7<<0);
+	RTC->CR |= (0<<0);
+
+	RTC.lock();
+
+	// Set it up now, but we will turn it on later.
+	// RTC Wakeup is via exti 19! only listed in the nvic section
+	EXTI->RTSR1 |= (1<<19);
+	EXTI->IMR1 |= (1 << 19);
+	// we want to wakeup, but we don't need a handler
+	//NVIC.enable(interrupt::irq::RTC_WKUP);
+	RTC->BKP[19] = 0xcafe;
+}
+
+
 static void prvTaskBlinkGreen(void *pvParameters)
 {
 	(void)pvParameters;
@@ -62,10 +121,15 @@ static void prvTaskBlinkGreen(void *pvParameters)
 	int i = 0;
 	while (1) {
 		i++;
-		vTaskDelay(pdMS_TO_TICKS(500));
+		vTaskDelay(pdMS_TO_TICKS(2500));
 //	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
 		led_g.toggle();
 //		printf("testing: %d\n", i);
+		// order is important!
+		uint32_t ssr = RTC->SSR;
+		uint32_t tr = RTC->TR;
+		uint32_t dr = RTC->DR;
+		printf("date/time: %08lx %08lx.%04lu\n", dr, tr, ssr);
 	}
 }
 
@@ -76,6 +140,9 @@ int main() {
 	DWT->CTRL |= 1;
 	
 	krcc_init32();
+
+	// We'll need the rtc for low power wakeups
+	krtc_init();
 
 	RCC.enable(rcc::GPIOB);
 	RCC.enable(rcc::GPIOE);
