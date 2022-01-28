@@ -21,8 +21,5 @@ app-kustom1: does some custom advertising stuff, perhaps not very interesting
 
 ## TODO
 * low power, obviously.
-* hci_cmd_resp_wait and hci_cmd_resp_release should probably be implemented using rtos functions?
-the default weak impls are busy polling?
-same for shci_cmd_resp_wait and shci_cmd_resp_release.  /yes, youi've already got the semaphores created for them, rip of ST here!
 * 99% sure that we don't need separate processes for shci and hci, just use flags and proper rtos features.
 * be more "c++"  (code is very much C style, but it works for me...)

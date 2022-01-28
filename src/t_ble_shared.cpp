@@ -301,6 +301,35 @@ void hci_notify_asynch_evt(void* pdata)
 	return;
 }
 
+void hci_cmd_resp_release(uint32_t flag)
+{
+	(void)flag;
+	BaseType_t whocares;
+	xSemaphoreGiveFromISR(SemHciId, &whocares);
+	return;
+}
+
+void hci_cmd_resp_wait(uint32_t timeout)
+{
+	(void)timeout;
+	xSemaphoreTake(SemHciId, portMAX_DELAY);
+	return;
+}
+
+void shci_cmd_resp_release(uint32_t flag)
+{
+	(void)flag;
+	BaseType_t whocares;
+	xSemaphoreGiveFromISR(SemShciId, &whocares);
+	return;
+}
+
+void shci_cmd_resp_wait(uint32_t timeout)
+{
+	(void)timeout;
+	xSemaphoreTake(SemShciId, portMAX_DELAY);
+	return;
+}
 
 extern "C" {
 
