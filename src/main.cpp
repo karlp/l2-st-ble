@@ -177,7 +177,7 @@ int main() {
 extern "C" {
 	void vPortSVCHandler(void);
 	void xPortPendSVHandler(void);
-	void xPortSysTickHandler(void);
+	void LPTIM1_IRQHandler(void);
 }
 template <>
 void interrupt::handler<interrupt::exception::SVCall>() {
@@ -188,7 +188,6 @@ void interrupt::handler<interrupt::exception::PendSV>() {
 	xPortPendSVHandler();
 }
 template <>
-void interrupt::handler<interrupt::exception::SysTick>() {
-	xPortSysTickHandler();
+void interrupt::handler<interrupt::irq::LPTIM1>() {
+	LPTIM1_IRQHandler();
 }
-
