@@ -112,6 +112,23 @@ static void krtc_init(void) {
 	RTC->BKP[19] = 0xcafe;
 }
 
+static void print_date(void) {
+	// order of read is important!
+	uint32_t s = RTC->SSR;
+	uint32_t t = RTC->TR;
+	uint32_t d = RTC->DR;
+
+	printf("20%02lx:%02lx:%02lx T %02lx:%02lx:%02lx.%03ld\n",
+		(d >> 16) & 0xff,
+		(d >> 8) & 0x1f,
+		d & 0x3f,
+		(t >> 16) & 0x3f,
+		(t >> 8) & 0x7f,
+		t & 0x7f,
+		s * 1000 / 256 // based on "default" fck_spre
+		);
+}
+
 
 static void prvTaskBlinkGreen(void *pvParameters)
 {
@@ -125,11 +142,7 @@ static void prvTaskBlinkGreen(void *pvParameters)
 //	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
 		led_g.toggle();
 //		printf("testing: %d\n", i);
-		// order is important!
-		uint32_t ssr = RTC->SSR;
-		uint32_t tr = RTC->TR;
-		uint32_t dr = RTC->DR;
-		printf("date/time: %08lx %08lx.%04lu\n", dr, tr, ssr);
+		print_date();
 	}
 }
 
