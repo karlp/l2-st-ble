@@ -187,16 +187,24 @@ public:
 class HandleStop : public ISleepHandler {
 private:
 	enum sleep_modes _mode;
+	uint32_t _rcc_cr, _rcc_cfgr;
 public:
 	HandleStop(enum sleep_modes mode): _mode{mode} {};
 	
 	void pre(void) {
 		printf("stop pre %u\n", _mode);
+		_rcc_cr = RCC->CR;
+		_rcc_cfgr = RCC->CFGR;
 		PWR.set_lpms(_mode);
+		// Enable SLEEPDEEP
+		SCB->SCR |= (1<<2);
 	}
 	void post(void) {
 		printf("stop post\n");
-		// sleep needs nothing
+		// 3. We wakeup with either HSI16 or MSI depending on RCC->CFGR:STOPWUCK...
+		// we're just going to to with "restore RCC->CR and RCC-CFGR....
+		RCC->CR = _rcc_cr;
+		RCC->CFGR = _rcc_cfgr;
 	}
 };
 
@@ -240,18 +248,21 @@ public:
 
 auto handleLpRun = HandleLpRun();
 auto handleSleep = HandleSleep();
+auto handleStop = HandleStop(sleep_modes::STOP0);
 
 //const ISleepHandler *handler = &handleLpRun;
 
 static void ksleep() {
-	handleLpRun.pre();
+//	handleLpRun.pre();
 //	handleSleep.pre();
+	handleStop.pre();
 	asm volatile ("wfi");
 }
 
 static void ksleep_exit() {
-	handleLpRun.post();
+//	handleLpRun.post();
 //	handleSleep.post();
+	handleStop.post();
 }
 
 #if 0
