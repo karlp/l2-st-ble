@@ -160,7 +160,7 @@ objs_wpan = [env_wpan.Object(f) for f in sources_wpan]
 ###########
 
 env.Append(LIBS = "cmsisdsp", LIBPATH="${CMSIS}")
-sources_shared = ['main.cpp', 'syszyp.cpp', 't_ble_shared.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp', 'frlp-jt.c', 'power.cpp']
+sources_shared = ['main.cpp', 'syszyp.cpp', 't_ble_shared.cpp', 'dis_app.c', 'tgt_hw_ipcc.cpp', 'frlp-jtx.cpp', 'power.cpp']
 
 # Uncomment if desired...
 #sources_shared += ['call-graphing.cpp']

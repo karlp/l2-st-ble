@@ -8,6 +8,7 @@
 #include <rcc/flash.h>
 #include <rcc/rcc.h>
 #include <rtc/rtc.h>
+#include <uart/uart.h>
 #include <wpan/hsem.h>
 #include <wpan/ipcc.h>
 
@@ -24,6 +25,29 @@ auto led_b = GPIOB[5];
 
 #define SAVE_TO_SECOND_BUFFER
 
+
+#include <cerrno>
+#include <cstdlib>
+#include <unistd.h>
+
+
+extern "C" int _write(int file, char* ptr, int len) {
+        int i;
+
+        if (file == STDOUT_FILENO || file == STDERR_FILENO) {
+                for (i = 0; i < len; i++) {
+                        if (ptr[i] == '\n') {
+				LPUART1.write_blocking('\r');
+                        }
+		LPUART1.write_blocking(ptr[i]);
+                }
+                return i;
+        }
+        errno = EIO;
+        return -1;
+}
+
+
 /**
  * We just want to run at 32Mhz, so skip the "normal" rcc_init() full speed option
  */
@@ -35,12 +59,11 @@ void krcc_init32(void) {
 	RCC->CR |= (1<<16);
 	while(!(RCC->CR & (1<<17)));
 
+	// Make sure to clear bits, we may be waking up!
+	RCC->CFGR &= ~0x3;
 	RCC->CFGR |= 0x2;
 	while ((RCC->CFGR & (2<<2)) != (2<<2)); // SWS = HSE
 	// Leave prescalers alone...
-	
-	PWR->CR1 |= (1<<8); // Unlock backup domain
-	RCC->BDCR |= (1<<0); // LSE ON
 	
 	// RF wakeup clock selection
 	RCC->CSR &= ~(0x3<<14);
@@ -56,12 +79,14 @@ void krcc_init32(void) {
 
 
 static void krtc_init(void) {
+	// always need that even if RTC itself is already setup
+	PWR->CR1 |= (1 << 8); // Unlock backup domain
+	
 	// Use the last backup register as a flag that we're already initialized
 	if (RTC->BKP[19] == 0xcafe) {
 		printf("RTC: already setup!\n");
 		return;
 	}
-	PWR->CR1 |= (1<<8); // Unlock backup domain
 
 	// We've decided that it's "not setup" so go ahead and hard reset
 	// The RTC.  You want to be careful with this, or you lose your
@@ -79,9 +104,9 @@ static void krtc_init(void) {
 	RCC->BDCR |= (1<<8); // RTCSEL == LSE
 	RCC->BDCR |= (1<<15); // RTCEN
 	RCC.enable(rcc::RTCAPB);
-	while (!(RCC->APB1ENR1 & rcc::RTCAPB)) {
-		; // make sure we have access!
-	}
+//	while (!(RCC->APB1ENR1 & rcc::RTCAPB)) {
+//		; // make sure we have access!
+//	}
 
 	RTC.unlock();
 
@@ -111,6 +136,63 @@ static void krtc_init(void) {
 	//NVIC.enable(interrupt::irq::RTC_WKUP);
 	RTC->BKP[19] = 0xcafe;
 }
+
+static void klpuart_init(void) {
+//	RCC.enable(rcc::USART1);
+	RCC.enable(rcc::LPUART1);
+
+	// sysclock? lpuart1
+	RCC->CCIPR &= ~(0x3<<10);
+	RCC->CCIPR |= (1<<10);
+	// usart1
+	RCC->CCIPR &= ~(0x3<<0);
+	RCC->CCIPR |= (1<<0);
+
+
+#if defined(STM32WB) || defined(STM32G4)
+	// PA2,3 for lpuart1
+	RCC.enable(rcc::GPIOA);
+	auto lp1_rx = GPIOA[2];
+	auto lp1_tx = GPIOA[3];
+#elif defined(STM32L4)
+	RCC.enable(rcc::GPIOC);
+	auto lp1_rx = GPIOC[0];
+	auto lp1_tx = GPIOC[1];
+#endif
+
+#if defined(STM32G4)
+	lp1_rx.set_af(12);
+	lp1_tx.set_af(12);
+#else
+	lp1_rx.set_af(8);
+	lp1_tx.set_af(8);
+#endif
+	lp1_rx.set_mode(Pin::Mode::AF);
+	lp1_tx.set_mode(Pin::Mode::AF);
+
+//	RCC.enable(rcc::GPIOB);
+//	auto pb6 = GPIOB[6];
+//	auto pb7 = GPIOB[7];
+//	pb6.set_af(7);
+//	pb7.set_af(7);
+//	pb6.set_mode(Pin::Mode::AF);
+//	pb7.set_mode(Pin::Mode::AF);
+//
+//	USART1->CR1 = (1<<29); // fifo, 8bit, no parity, no special
+//	//USART1->CR1 = 0;
+//	USART1->CR2 = 0; // standard
+//	// this is for lpuart USART1->BRR = (256*32000000u / 115200); // 71111?
+//	USART1->BRR = configCPU_CLOCK_HZ / 115200u;
+//	USART1->CR1 |= (1<<3)|1; // TX only, enabled
+
+	LPUART1->CR1 = (1<<29); // fifo, 8bit, no parity, no special
+	//LPUART1->CR1 = 0;
+	LPUART1->CR2 = 0; // standard
+	LPUART1->BRR = (configCPU_CLOCK_HZ / 115200) * 256; // careful with overflows!
+	LPUART1->CR1 |= (1<<3)|1; // TX only, enabled
+
+}
+
 
 static void print_date(void) {
 	// order of read is important!
@@ -153,6 +235,8 @@ int main() {
 	DWT->CTRL |= 1;
 	
 	krcc_init32();
+	klpuart_init();
+	printf("Clocks and console up!\n");
 
 	// We'll need the rtc for low power wakeups
 	krtc_init();
@@ -177,7 +261,6 @@ int main() {
 extern "C" {
 	void vPortSVCHandler(void);
 	void xPortPendSVHandler(void);
-	void LPTIM1_IRQHandler(void);
 }
 template <>
 void interrupt::handler<interrupt::exception::SVCall>() {
@@ -187,7 +270,8 @@ template <>
 void interrupt::handler<interrupt::exception::PendSV>() {
 	xPortPendSVHandler();
 }
+extern void LPTIM_IRQHandler(void);
 template <>
 void interrupt::handler<interrupt::irq::LPTIM1>() {
-	LPTIM1_IRQHandler();
+	LPTIM_IRQHandler();
 }
