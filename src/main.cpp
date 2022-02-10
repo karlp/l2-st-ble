@@ -125,7 +125,7 @@ static void print_date(void) {
 		(t >> 16) & 0x3f,
 		(t >> 8) & 0x7f,
 		t & 0x7f,
-		s * 1000 / 256 // based on "default" fck_spre
+		(1000*(255 - s)/256) // based on "default" fck_spre
 		);
 }
 
