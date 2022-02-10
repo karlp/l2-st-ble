@@ -30,6 +30,8 @@ auto led_b = GPIOB[5];
 #include <cstdlib>
 #include <unistd.h>
 
+auto const opt_use_leds = false;
+
 
 extern "C" int _write(int file, char* ptr, int len) {
         int i;
@@ -215,14 +217,18 @@ static void print_date(void) {
 static void prvTaskBlinkGreen(void *pvParameters)
 {
 	(void)pvParameters;
-	led_g.set_mode(Pin::Output);
+	if (opt_use_leds) {
+		led_g.set_mode(Pin::Output);
+	}
 
 	int i = 0;
 	while (1) {
 		i++;
 		vTaskDelay(pdMS_TO_TICKS(2500));
 //	        ITM->stim_blocking(0, (uint8_t)('a' + (i%26)));
-		led_g.toggle();
+		if (opt_use_leds) {
+			led_g.toggle();
+		}
 //		printf("testing: %d\n", i);
 		print_date();
 	}
