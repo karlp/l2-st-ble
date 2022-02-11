@@ -237,6 +237,10 @@ void task_ble_setup(void(*user_func)(void*))
 
 	EXTI->IMR2 |= (1 << (36 - 32)) | (1 << (38 - 32)); // IPCC and HSEM wakeup EXTIs
 
+	// RF wakeup clock selection
+	RCC->CSR &= ~(0x3<<14);
+	RCC->CSR |= (1<<14); // LSE
+
 	// hsi as wakeup _must_ be used if you want wakeup from stop for radio,
 	// "The functionality in Stop mode is supported only when the clock is
 	// HSI16 is selected as wakeup clock by STOPWUCK."

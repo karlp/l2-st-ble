@@ -67,22 +67,10 @@ void krcc_init32(void) {
 	while ((RCC->CFGR & (2<<2)) != (2<<2)); // SWS = HSE
 	// Leave prescalers alone...
 	
-	// RF wakeup clock selection
-	RCC->CSR &= ~(0x3<<14);
-	RCC->CSR |= (1<<14); // LSE
 
 	/////// FROM HERE DOWN IS PROBABLY NOT PART OF THE "rcc32_init" step? ///////////////
 	// Set SMPS clock to HSE.  (This is _ignored_ if the radio is active, and HSE is used regardless!)
 	RCC->SMPSCR = (1<<4) | (2<<0); // HSE+div1.
-	
-	// Set RF wakeup clock to LSE
-	RCC->CSR |= (1<<14);
-
-	// FIXME - we have this in two places? shouldn't be needed!
-	// st sets stop clock wakeup to hsi
-	RCC->CFGR |= (1<<15);
-	// Sets set c2 pwr LPMS _initally_ here too!
-	PWR.set_lpms_c2(4); // Shutdown mode.
 }
 
 
