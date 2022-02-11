@@ -175,6 +175,3 @@ env.Depends(fw, env['LINK_SCRIPT'])
 this_wpan = objs_wpan + [env_wpan.Object(f) for f in [os.path.join(env["WPAN"], "ble/svc/Src/", x) for x in ["svc_ctl.c", "dis.c", "hrs.c"]]]
 fw = env.Program("app-hrstm.elf", [os.path.join("src", x) for x in ["t_ble_hrstm.cpp", "hrs_app.cpp"] + sources_shared] + sources_freertos + env['LIB_SOURCES'] + this_wpan)
 env.Depends(fw, env['LINK_SCRIPT'])
-
-fw = env.Program("wat-lp1.elf", ["src/wat-lp1.cpp", "src/syszyp.cpp"] + env["LIB_SOURCES"])
-env.Depends(fw, env["LINK_SCRIPT"])
