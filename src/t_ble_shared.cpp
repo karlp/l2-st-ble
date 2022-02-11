@@ -5,6 +5,7 @@
 
 #include <exti/exti.h>
 #include <interrupt/interrupt.h>
+#include <pwr/pwr.h>
 #include <rcc/rcc.h>
 #include <wpan/ipcc.h>
 
@@ -173,12 +174,6 @@ static void HciUserEvtProcess(void *argument)
 void APP_BLE_Init(SHCI_C2_Ble_Init_Cmd_Packet_t *ble_init_cmd_packet, void(*user_func)(void*))
 {
 	/**
-	 * Do not allow standby in the application
-	 */
-	//  printf("KLPM:app:DISABLE\n");
-	// FIXME kkk  UTIL_LPM_SetOffMode(1 << CFG_LPM_APP_BLE, UTIL_LPM_DISABLE);
-
-	/**
 	 * Register the hci transport layer to handle BLE User Asynchronous Events
 	 */
 	xTaskCreate(HciUserEvtProcess, "hci_evt", configMINIMAL_STACK_SIZE * 8, (void*) user_func, tskIDLE_PRIORITY + 1, &HciUserEvtProcessId);
@@ -227,13 +222,6 @@ void task_ble_setup(void(*user_func)(void*))
 	// Ok, but seriously,
 	IPCC->C1CR |= (1 << 16) | (1 << 0); // TXFIE | RXOIE
 
-	// MX_RF_Init() is null
-	// MX_RTC_Init()...
-	// FIXME: XXX fuck it, I'm not sure what we're using this for, it can wait...
-	// demo app seems to be using it for a wakeup timer? I'll have adc dma timer for that...
-	// correct, fuck it off for now, we're going full power to get the stack working,
-	// and we _only_ "need" the RTC to get a lower power wakeup
-
 
 	// MX_APPE_Init()... // stop that, MX_APPE_Init isn't in the freertos demos!
 	// CAN this go to top of bluetooth? (appears to still do exti/smps shits..
@@ -249,38 +237,16 @@ void task_ble_setup(void(*user_func)(void*))
 
 	EXTI->IMR2 |= (1 << (36 - 32)) | (1 << (38 - 32)); // IPCC and HSEM wakeup EXTIs
 
-	// XXX: more RTC init here, setting wakeup clocks.
-
-	// SystemPower_Config()....
-	// set hsi as sysclock after wakeup from stop?
-	// ->  nope, we're never going to stop...
-	// init "util_lpm_..." -> nope...
-	// nope, we're running in full power mode until the stack works!
-	//	PWR->C2CR1 &= ~(0x7);
-	//	PWR->C2CR1 |= 0x4; // LPMS == Shutdown
-
-
-	// HW_TS_Init()....
-	// FIXME - this one _might_ need the RTC finally?
-
-	///// APPD_Init()
-	// XXX: there's a step here about enabling debugger, which is a power thing... revisit.
-
-	// APPD_SetCPU2GpioConfig() ? lol, no, we're not getting support from ST with this code :)
-	// APPD_bleDtbCfg() ? lol, same, no ST support here bois!
-	/////
-
-	// UTIL_LPM modes again.  we're definitely not going to be using that code, we want it better tied into freertos..
-
-	// appe_Tl_Init()...
-	// XXX this is a real good sized one!
-	// go straight to another file for it...
-
+	// hsi as wakeup _must_ be used if you want wakeup from stop for radio,
+	// "The functionality in Stop mode is supported only when the clock is
+	// HSI16 is selected as wakeup clock by STOPWUCK."
+	RCC->CFGR |= (1<<15); // STOPWUCK == HSI
+	// Default C2 LPMS.  fw blob will manage this itself afterwards.
+	PWR.set_lpms_c2(4);
 
 	// Start the lowest level task, and pass our "user" startup task...
 	// this will fire up C2, start hci task, and let us know when we can continue...
 	xTaskCreate(ShciUserEvtProcess, "shci_evt", configMINIMAL_STACK_SIZE * 7, (void*) user_func, tskIDLE_PRIORITY + 1, &ShciUserEvtProcessId);
-
 }
 
 /** API impl called from STM32_WPAN shci_tl.c */
