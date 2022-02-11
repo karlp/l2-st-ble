@@ -97,9 +97,6 @@ static struct save_data_t save_data;
 #define CFG_HW_RNG_SEMID                                        0
 
 
-static uint32_t _rcc_cr;
-static uint32_t _rcc_cfgr;
-auto const _msi_range = 0;
 
 // hackyhack..
 extern Pin led_g;
@@ -117,23 +114,30 @@ static void _enable_hsi(void) {
 
 void pre_lpsleep(uint32_t _msi_range)
 {
-	_rcc_cr = RCC->CR;
-	_rcc_cfgr = RCC->CFGR;
-#if defined(STM32WB)
-	// According to code samples, but not clearly described
-	// But not clearly described in the ref man, this call would normally be
-	// made by the CPU2 code itself.  Without turning it on and running,
-	// we do it ourselves...
-	// We can actually set it _lower_ than the cpu1 mode, but this is sufficient...
-	// Some single core demos set this up front, once, but we can do it here easily rightnow.
-	PWR.set_lpms_c2(4);  // use shutdown all the way?  (no, makes no difference here :(
-#endif
+	save_data.cr = RCC->CR;
+	save_data.cfgr = RCC->CFGR;
+	save_data.smpscr = RCC->SMPSCR;
+	while (!HSEM.get_lock_1step(CFG_HW_RCC_SEMID));
 
-//#if defined(STM32WB) // This has no impact on this mode!
-//	// Separate section for errata on stop mode and debug
-//	EXTI->IMR2 &= ~(1<<(48-32));
-//	EXTI->C2IMR2 &= ~(1<<(48-32));
-//#endif
+	// We just do this _anyway?
+	if (!HSEM.get_lock_1step(CFG_HW_ENTRY_STOP_MODE_SEMID)) {
+		// Check C2DS and C2SBF
+		if ((PWR->EXTSCR & (1<<15))  || (PWR->EXTSCR & (1<<10))) {
+			HSEM.release(CFG_HW_ENTRY_STOP_MODE_SEMID, 0);
+//			printf("P1");
+			//_enable_hsi();
+			RCC->CR |= (1<<8); // Turn on HSI _only_ don't switch to it!  Just make sure it's available!
+
+		} else {
+			printf("MX");
+			// Is this the only place I'm allowed to go to MSI?
+		}
+	} else {
+		printf("P2");
+		//_enable_hsi();
+		RCC->CR |= (1<<8); // Turn on HSI _only_ don't switch to it!  Just make sure it's available!
+	}
+
 	// Ensure MSI is on, and switch down to that range...
 	RCC->CR |= (1 << 3) | 1; // Also enable range selection here
 	// Can't modify MSI range when it's on and not ready
@@ -142,21 +146,27 @@ void pre_lpsleep(uint32_t _msi_range)
 	RCC->CR |= (_msi_range << 4);
 
 	RCC->CFGR &= ~(0x3 << 0); // Set MSI as clock source
-	// SLEEPDEEP must be clear
-	SCB->SCR &= ~(1 << 2);
 
-	PWR->CR1 |= (1 << 14); // Set regulator low power mode
+	HSEM.release(CFG_HW_RCC_SEMID, 0);
+
+	
+	SCB->SCR &= ~(1 << 2); // SLEEPDEEP must be clear
+	// LoLoLoLO no lprun/lpsleep support for radios!
+//	PWR->CR1 |= (1 << 14); // Set regulator low power mode
 }
 
 void post_lpsleep(void)
 {
 	// Restore regulator power
-	PWR->CR1 &= ~(1 << 14);
-	while (PWR->SR2 & (1 << 9)); // Wait for REGLPF
+//	PWR->CR1 &= ~(1 << 14);
+//	while (PWR->SR2 & (1 << 9)); // Wait for REGLPF
 
-	// restore system clock settings
-	RCC->CR = _rcc_cr;
-	RCC->CFGR = _rcc_cfgr;
+	HSEM.release(CFG_HW_ENTRY_STOP_MODE_SEMID, 0);
+	while (!HSEM.get_lock_1step(CFG_HW_RCC_SEMID));
+	RCC->CR = save_data.cr;
+	RCC->CFGR = save_data.cfgr;
+	RCC->SMPSCR = save_data.smpscr;
+	HSEM.release(CFG_HW_RCC_SEMID, 0);
 }
 
 /* handles the "requirements" of shutting down with c2, copied from ble_heartrateFreertos demo
@@ -164,6 +174,7 @@ void post_lpsleep(void)
  * clock after wakeup from Stop modes." (From RM0434rev9, section 8.2.2 HSI16 clock)
  */
 static void _c2_pre_stop(void) {
+	// TODO? Should I wait until I get it before reading the values?
 	save_data.cr = RCC->CR;
 	save_data.cfgr = RCC->CFGR;
 	save_data.smpscr = RCC->SMPSCR;
@@ -255,12 +266,12 @@ extern "C" {
 	{
 		while (!(LPUART1->ISR & (1<<6)));
 //		pre_lpsleep(0);
-		pre_stop(2);
+//		pre_stop(2);
 	}
 
 	void myPostSleepFunction(const TickType_t xExpectedIdleTime)
 	{
 //		post_lpsleep();
-		post_stop();
+//		post_stop();
 	}
 }
